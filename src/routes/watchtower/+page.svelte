@@ -13,7 +13,7 @@
 	}
 
 	// ── Backgrounds ────────────────────────────────────────────
-	const STARTING_BG  = '/bg-watchtower.jpg';
+	const STARTING_BG  = '/bg-pan-2.png';
 	const DESTINATIONS = [
 		'/bg-1.jpg', '/bg-2.jpg', '/bg-3.jpg',
 		'/bg-4.jpg', '/bg-5.jpg', '/bg-6.jpg', '/bg-7.jpg',
@@ -23,6 +23,20 @@
 	let traveling = $state(false);
 	let dark      = $state(false);
 	let textShown = $state(true);
+	let viewing  = $state(false);
+	let panReady = $state(false);
+	let panX     = $state(50); // matches bg-position center = 50%
+	let panY     = $state(30); // matches bg-position 30%
+
+	$effect(() => {
+		document.body.classList.toggle('viewing', viewing);
+	});
+
+	function trackMouse(e: MouseEvent) {
+		if (!panReady) return;
+		panX = (e.clientX / window.innerWidth)  * 100;
+		panY = 30 + (e.clientY / window.innerHeight - 0.5) * 10;
+	}
 
 	onMount(() => {
 		DESTINATIONS.forEach(src => { const i = new Image(); i.src = src; });
@@ -34,6 +48,22 @@
 
 	function sleep(ms: number) {
 		return new Promise<void>(r => setTimeout(r, ms));
+	}
+
+	function enjoyView(e: Event) {
+		e.preventDefault();
+		viewing   = true;
+		panReady  = false;
+		textShown = false;
+		setTimeout(() => { panReady = true; }, 1400);
+	}
+
+	function exitView() {
+		viewing   = false;
+		panReady  = false;
+		textShown = true;
+		panX = 50;
+		panY = 30;
 	}
 
 	async function beginJourney(e: Event) {
@@ -187,11 +217,18 @@
 </script>
 
 <!-- Background -->
-<div class="bg" class:zooming={traveling}>
+<div class="bg" class:zooming={traveling} class:deblurred={viewing}>
 	<div class="bg-image" style="background-image: url('{bgSrc}')"></div>
 	<div class="bg-vignette"></div>
 	<div class="travel-dark" class:visible={dark}></div>
 </div>
+
+<!-- Panoramic view layer -->
+<div
+	class="pan-layer"
+	class:pan-visible={viewing}
+	style="background-position: {panX}% {panY}%"
+></div>
 
 <!-- Intro text -->
 <div class="page" class:hidden={!textShown}>
@@ -218,7 +255,17 @@
 			{#if token.space}&nbsp;{:else}<span class="char" style="--ei: {token.ei}">{token.ch}</span>{/if}
 		{/each}
 	</a>
+
+	<button class="line line3" onclick={enjoyView}>
+		{#each tokenize('enjoy the view', 48) as token}
+			{#if token.space}&nbsp;{:else}<span class="char" style="--ei: {token.ei}">{token.ch}</span>{/if}
+		{/each}
+	</button>
 </div>
+
+{#if viewing}
+	<div class="view-overlay" onclick={exitView} onmousemove={trackMouse} role="button" tabindex="0" aria-label="Exit view"></div>
+{/if}
 
 <!-- Discovery panel — diagonal parallelogram -->
 <!-- Layer 1: filled background shape -->
@@ -338,6 +385,16 @@
 	.travel-dark.visible { opacity: 1; }
 	.travel-dark:not(.visible) { transition: opacity 1.8s ease-out; }
 
+	.bg.deblurred .bg-image {
+		filter: blur(0px);
+		transition: filter 1.6s ease-out, transform 1.8s ease-in;
+	}
+
+	.bg.deblurred .bg-vignette {
+		opacity: 0;
+		transition: opacity 1.4s ease-out;
+	}
+
 	/* ── Intro text ───────────────────────────────────── */
 
 	.page {
@@ -372,6 +429,20 @@
 
 	.line1 .char { font-size: 1.5rem; letter-spacing: 0.03em; }
 	.line2 .char { font-size: 0.9rem; letter-spacing: 0.07em; }
+	.line3 .char { font-size: 0.7rem; letter-spacing: 0.07em; }
+
+	.line3 {
+		background: transparent;
+		border: none;
+		font-family: var(--font-mono);
+		color: var(--text-dim);
+		cursor: pointer;
+		padding: 0;
+		text-align: left;
+		transition: color 0.2s ease;
+	}
+
+	.line3:hover { color: var(--text-muted); }
 
 	.char {
 		display: inline-block;
@@ -383,6 +454,39 @@
 	@keyframes letterEnter {
 		from { opacity: 0; transform: translateX(16px); }
 		to   { opacity: 1; transform: translateX(0); }
+	}
+
+	/* ── Panoramic pan layer ──────────────────────────── */
+
+	.pan-layer {
+		position: fixed;
+		inset: 0;
+		z-index: 1;
+		background-image: url('/bg-pan-2.png');
+		background-size: auto 100vh;
+		background-repeat: no-repeat;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 1.4s ease, background-position 0.12s ease-out;
+	}
+
+	.pan-layer.pan-visible {
+		opacity: 1;
+	}
+
+	/* ── View mode ────────────────────────────────────── */
+
+	.view-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 99;
+		cursor: pointer;
+	}
+
+	:global(body.viewing nav) {
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 1s ease;
 	}
 
 	/* ── Discovery panel ──────────────────────────────── */

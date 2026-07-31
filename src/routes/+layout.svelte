@@ -7,8 +7,9 @@
 
 <nav>
 	<div class="nav-left">
-		<a href="/hall" class:active={$page.url.pathname.startsWith('/hall')}>Idea Hall</a>
 		<a href="/watchtower" class:active={$page.url.pathname.startsWith('/watchtower')}>Watchtower</a>
+		<a href="/hall" class:active={$page.url.pathname.startsWith('/hall')}>Iron×Iron</a>
+		<a href="/forge" class:active={$page.url.pathname.startsWith('/forge')}>Forge</a>
 	</div>
 	<div class="nav-right">
 		<a href="/login">Login</a>
@@ -52,7 +53,8 @@
 
 	.nav-left a:nth-child(1) { animation-delay: 0.05s; }
 	.nav-left a:nth-child(2) { animation-delay: 0.12s; }
-	.nav-right a           { animation-delay: 0.08s; }
+	.nav-left a:nth-child(3) { animation-delay: 0.19s; }
+	.nav-right a             { animation-delay: 0.08s; }
 
 	main {
 		min-height: 100vh;
