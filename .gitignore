@@ -17,6 +17,9 @@ out/
 
 # Environment variables — never commit secrets
 .env
+*.db
+*.db-shm
+*.db-wal
 .env.local
 .env.*.local
 .env.development.local
