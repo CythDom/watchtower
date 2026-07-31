@@ -1,3 +1,6 @@
+# SvelteKit generated
+.svelte-kit/
+
 # Dependencies
 node_modules/
 .pnp
