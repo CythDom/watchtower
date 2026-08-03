@@ -7,8 +7,7 @@
 }
 
 :root {
-	--bg-center:     #272727;
-	--bg-edge:       #101010;
+	--bg:            #1e1e1e;
 	--text-primary:  #d0d0d0;
 	--text-muted:    #888888;
 	--text-dim:      #4a4a4a;
@@ -25,8 +24,7 @@ body {
 	font-size: 0.8125rem;
 	font-weight: 400;
 	color: var(--text-primary);
-	background: radial-gradient(ellipse at 50% 38%, var(--bg-center) 0%, var(--bg-edge) 72%);
-	background-attachment: fixed;
+	background: var(--bg);
 	min-height: 100vh;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
