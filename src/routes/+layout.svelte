@@ -30,7 +30,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 1.375rem 4.5rem;
-		z-index: 10;
+		z-index: 20;
 	}
 
 	.nav-left {

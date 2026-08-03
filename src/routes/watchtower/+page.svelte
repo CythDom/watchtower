@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 
 	const line1 = 'Improvement is on the horizon';
-	const line2 = 'Begin exploring →';
+	const line2 = 'Begin exploring';
 
 	function tokenize(str: string, offset = 0) {
 		let charIdx = 0;
@@ -44,6 +44,7 @@
 			const saved = JSON.parse(localStorage.getItem('wt-log') ?? '[]');
 			loggedIds = new Set(saved);
 		} catch {}
+		loadFinds();
 	});
 
 	function sleep(ms: number) {
@@ -87,12 +88,7 @@
 	}
 
 	// ── Color ramp ─────────────────────────────────────────────
-	const RAMP = [
-		'#1c1c1c', '#2e0c0c', '#430f0f', '#5e1111', '#7a1414',
-		'#962020', '#b03010', '#c84400', '#df5500', '#f46600',
-		'#ff7a00', '#ff9200', '#ffaa00', '#ffbf00', '#ffd000',
-		'#ffe044', '#fff0a0', '#ffffff',
-	];
+	const RAMP = ['#909090', '#ffb300', '#ffe044', '#ffffff'];
 
 	function hexToRgb(h: string): [number, number, number] {
 		const n = parseInt(h.slice(1), 16);
@@ -120,7 +116,7 @@
 	}
 
 	// ── Heat animation ─────────────────────────────────────────
-	const HEAT_SPEED = 0.8;
+	const HEAT_SPEED = 12;
 	const COOL_SPEED = 0.08;
 
 	let l1Pos = $state(0), l1Target = 0, l1Raf: number | null = null;
@@ -165,12 +161,23 @@
 
 	// ── Discovery ──────────────────────────────────────────────
 	interface Find {
-		id:     string;
-		title:  string;
-		url:    string;
-		source: string;
-		topic:  string;
-		points: number;
+		id:        string;
+		title:     string;
+		url:       string;
+		source:    string;
+		topic:     string;
+		points:    number;
+		relevance: number;
+	}
+
+	function rPos(r: number) { return (Math.max(1, Math.min(10, r)) - 1) / 9; }
+
+	function heatLabel(r: number): string {
+		if (r <= 2) return 'cold';
+		if (r <= 4) return 'warm';
+		if (r <= 6) return 'hot';
+		if (r <= 8) return 'critical';
+		return 'molten';
 	}
 
 	let panelShown   = $state(false);
@@ -178,6 +185,9 @@
 	let findIndex    = $state(0);
 	let loadingFinds = $state(false);
 	let loggedIds    = $state(new Set<string>());
+	let hasData      = $state(false);
+	let scanning     = $state(false);
+	let scanError    = $state<string | null>(null);
 
 	const currentFind = $derived(finds[findIndex] ?? null);
 
@@ -209,10 +219,35 @@
 				(interests[b.topic.toLowerCase()] ?? 0) - (interests[a.topic.toLowerCase()] ?? 0)
 			);
 			findIndex = 0;
+			hasData = finds.length > 0;
 		} catch {
 			finds = [];
 		}
 		loadingFinds = false;
+	}
+
+	async function triggerScan() {
+		if (scanning) return;
+		scanning = true;
+		scanError = null;
+		try {
+			const res = await fetch('/api/scrape', { method: 'POST' });
+			if (res.status === 429) {
+				const data = await res.json() as { nextAt: string };
+				scanError = `next scan available at ${new Date(data.nextAt).toLocaleTimeString()}`;
+			} else if (res.status === 401) {
+				scanError = 'sign in to scan';
+			}
+		} catch {
+			scanError = 'scan failed';
+		} finally {
+			scanning = false;
+		}
+		await loadFinds();
+		if (finds.length > 0) {
+			panelShown = true;
+			textShown  = false;
+		}
 	}
 </script>
 
@@ -256,28 +291,17 @@
 		{/each}
 	</a>
 
-	<button class="line line3" onclick={enjoyView}>
-		{#each tokenize('enjoy the view', 48) as token}
-			{#if token.space}&nbsp;{:else}<span class="char" style="--ei: {token.ei}">{token.ch}</span>{/if}
-		{/each}
+	<button class="scan-btn" onclick={triggerScan} disabled={scanning}>
+		{#if scanning}scanning...{:else if hasData}reload{:else}scan horizon{/if}
 	</button>
+	{#if scanError}<p class="scan-error">{scanError}</p>{/if}
 </div>
 
 {#if viewing}
 	<div class="view-overlay" onclick={exitView} onmousemove={trackMouse} role="button" tabindex="0" aria-label="Exit view"></div>
 {/if}
 
-<!-- Discovery panel — diagonal parallelogram -->
-<!-- Layer 1: filled background shape -->
-<div class="panel-bg" class:panel-visible={panelShown}></div>
-
-<!-- Layer 2: edge lines -->
-<svg class="panel-lines" class:panel-visible={panelShown} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-	<line x1="27" y1="0" x2="17" y2="100" />
-	<line x1="73" y1="0" x2="63" y2="100" />
-</svg>
-
-<!-- Layer 3: content (safe rectangle inside the parallelogram) -->
+<!-- Discovery panel -->
 <div class="panel-content" class:panel-visible={panelShown}>
 	{#if loadingFinds}
 		<p class="panel-status">scanning the horizon...</p>
@@ -288,6 +312,11 @@
 			<span class="find-label">vein detected</span>
 			<span class="find-topic">[ {currentFind.topic.toLowerCase()} ]</span>
 		</div>
+
+		<span
+			class="heat-word"
+			style="color:{colorAt(rPos(currentFind.relevance))};text-shadow:{shadowAt(rPos(currentFind.relevance))}"
+		>{heatLabel(currentFind.relevance)}</span>
 
 		<h2 class="find-title">{currentFind.title}</h2>
 
@@ -330,7 +359,11 @@
 				onclick={() => { findIndex = Math.min(finds.length - 1, findIndex + 1); }}
 				disabled={findIndex === finds.length - 1}
 			>▷</button>
+			<button class="nav-btn reload-btn" onclick={triggerScan} disabled={scanning}>
+				{scanning ? '...' : '↺'}
+			</button>
 		</div>
+		{#if scanError}<p class="scan-error">{scanError}</p>{/if}
 	{/if}
 </div>
 
@@ -353,6 +386,7 @@
 		transition:
 			transform 1.8s ease-in,
 			filter    1.4s ease-in;
+		display: none;
 	}
 
 	.bg.zooming .bg-image {
@@ -403,11 +437,10 @@
 		min-height: 100vh;
 		display: flex;
 		flex-direction: column;
-		justify-content: flex-start;
-		padding-top: 30vh;
-		padding-left: 27vw;
+		justify-content: center;
+		align-items: center;
+		text-align: center;
 		gap: 1.25rem;
-		max-width: 55%;
 		transition: opacity 0.8s ease;
 	}
 
@@ -432,14 +465,33 @@
 	.line3 .char { font-size: 0.7rem; letter-spacing: 0.07em; }
 
 	.line3 {
+		display: none;
+	}
+
+	.scan-btn {
 		background: transparent;
 		border: none;
 		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		letter-spacing: 0.1em;
 		color: var(--text-dim);
 		cursor: pointer;
 		padding: 0;
-		text-align: left;
+		margin-top: 0.25rem;
 		transition: color 0.2s ease;
+	}
+	.scan-btn:hover:not(:disabled) { color: var(--text-muted); }
+	.scan-btn:disabled { opacity: 0.4; cursor: default; }
+
+	.scan-error {
+		font-size: 0.6rem;
+		color: var(--text-dim);
+		letter-spacing: 0.06em;
+		margin-top: 0.25rem;
+	}
+
+	.reload-btn {
+		margin-left: auto;
 	}
 
 	.line3:hover { color: var(--text-muted); }
@@ -468,6 +520,7 @@
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 1.4s ease, background-position 0.12s ease-out;
+		display: none;
 	}
 
 	.pan-layer.pan-visible {
@@ -490,71 +543,31 @@
 	}
 
 	/* ── Discovery panel ──────────────────────────────── */
-	/*
-	 * Parallelogram defined by four corners:
-	 *   top-left (27%, 0%)  →  top-right (73%, 0%)
-	 *   bottom-right (63%, 100%)  →  bottom-left (17%, 100%)
-	 * Both edges slant ~10% leftward from top to bottom.
-	 */
 
-	.panel-bg,
-	.panel-lines,
 	.panel-content {
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 0.7s ease;
+		position: fixed;
+		inset: 0;
+		z-index: 4;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		text-align: center;
+		gap: 1.75rem;
 	}
 
-	.panel-bg.panel-visible,
-	.panel-lines.panel-visible,
 	.panel-content.panel-visible {
 		opacity: 1;
 		pointer-events: auto;
 	}
 
-	/* Filled background — clipped to the parallelogram */
-	.panel-bg {
-		position: fixed;
-		inset: 0;
-		z-index: 2;
-		background: rgba(8, 8, 8, 0.88);
-		clip-path: polygon(27% 0%, 73% 0%, 63% 100%, 17% 100%);
-	}
-
-	/* Edge lines — full-screen SVG, lines drawn in viewBox space */
-	.panel-lines {
-		position: fixed;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		z-index: 3;
-		pointer-events: none;
-	}
-
-	.panel-lines line {
-		stroke: rgba(255, 255, 255, 0.1);
-		stroke-width: 1px;
-		vector-effect: non-scaling-stroke;
-	}
-
-	/*
-	 * Content rectangle — must stay inside the parallelogram at all heights.
-	 * At any height t (0–1): left edge = (27 - 10t)%, right edge = (73 - 10t)%.
-	 * The tightest safe bounds are: left ≥ 27% (top), right ≤ 63% (bottom).
-	 * Adding ~3% padding inward on each side.
-	 */
-	.panel-content {
-		position: fixed;
-		left: 30vw;
-		right: 40vw;   /* right edge at 60vw */
-		top: 0;
-		bottom: 0;
-		z-index: 4;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		padding: 12vh 0;
-		gap: 1.75rem;
+	.heat-word {
+		font-size: 0.6rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
 	}
 
 	.panel-status {
