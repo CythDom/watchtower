@@ -1,4 +1,4 @@
-<script lang="ts">
+﻿<script lang="ts">
 	import { fade } from 'svelte/transition';
 	import type { PageData } from './$types';
 
@@ -345,45 +345,110 @@
 
 	// ── Project selection ─────────────────────────────────────────
 	let selectedProject: string | null = $state(null);
-	let hoveredSuggestion: number | null = $state(null);
 
 	const selectedProjectData = $derived(
 		selectedProject ? projects.find(p => p.name === selectedProject) ?? null : null
 	);
 
+	let lastSelectedProjectName: string | null = null;
+
 	function selectProject(project: Project) {
 		const prev = projects.find(p => p.name === selectedProject);
 		if (prev && prev.id !== project.id) coolItem(prev.id);
 		selectedProject = project.name;
+		lastSelectedProjectName = project.name;
 		heatItem(project.id);
 		settingsMode = false;
 	}
 
-	// ── Analysis ──────────────────────────────────────────────────
-	let analysisCache   = $state<Record<string, { healthMessage: string; suggestions: string[] }>>({});
-	let analysisLoading = $state(false);
+	// ── Carousel ──────────────────────────────────────────────────
+	interface Destination { label: string; url?: string; prompt?: string; }
+	interface ActionItem {
+		key: string; title: string; group: string; status: string;
+		destinations: Destination[]; rawContext: string;
+	}
 
-	async function loadAnalysis(project: Project) {
-		if (analysisCache[project.id]) return;
-		analysisLoading = true;
+	let carouselItems   = $state<ActionItem[]>([]);
+	let carouselIndex   = $state(0);
+	let carouselLoading = $state(false);
+	let summaryMode     = $state(false);
+	let summaryLoading  = $state(false);
+	let summaryText     = $state('');
+	let activeItem      = $state<ActionItem | null>(null);
+	let promptCopied    = $state(false);
+
+	async function loadItems(project: Project) {
+		carouselLoading = true;
+		summaryMode = false;
+		summaryText = '';
+		activeItem = null;
 		try {
-			const res = await fetch(`/api/projects/${project.id}/analyze`, { method: 'POST' });
+			const res = await fetch(`/api/projects/${project.id}/items`);
 			if (res.ok) {
-				const result = await res.json();
-				analysisCache = { ...analysisCache, [project.id]: result };
+				carouselItems = await res.json();
+				carouselIndex = 0;
+				if (carouselItems.length > 0) heatItem('carousel-' + carouselItems[0].key);
+			} else {
+				carouselItems = [];
 			}
 		} finally {
-			analysisLoading = false;
+			carouselLoading = false;
 		}
 	}
 
 	$effect(() => {
-		if (selectedProjectData && !settingsMode) loadAnalysis(selectedProjectData);
+		if (selectedProjectData && !settingsMode) loadItems(selectedProjectData);
 	});
 
-	const currentAnalysis = $derived(
-		selectedProjectData ? (analysisCache[selectedProjectData.id] ?? null) : null
-	);
+	function carouselGo(dir: -1 | 1) {
+		const next = carouselIndex + dir;
+		if (next < 0 || next >= carouselItems.length) return;
+		coolItem('carousel-' + carouselItems[carouselIndex].key);
+		carouselIndex = next;
+		heatItem('carousel-' + carouselItems[next].key);
+	}
+
+	async function setStatus(key: string, status: string) {
+		if (!selectedProjectData) return;
+		const idx = carouselIndex;
+		carouselItems = carouselItems.filter(i => i.key !== key);
+		carouselIndex = Math.min(idx, Math.max(0, carouselItems.length - 1));
+		if (carouselItems.length > 0) heatItem('carousel-' + carouselItems[carouselIndex].key);
+		await fetch(`/api/projects/${selectedProjectData.id}/items/status`, {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ key, status }),
+		});
+	}
+
+	async function takeAction(item: ActionItem) {
+		activeItem = item;
+		summaryMode = true;
+		summaryLoading = true;
+		if (selectedProjectData) {
+			fetch(`/api/projects/${selectedProjectData.id}/items/status`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ key: item.key, status: 'in_progress' }),
+			});
+		}
+		const res = await fetch(`/api/projects/${selectedProjectData!.id}/items/summarize`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ key: item.key, context: item.rawContext }),
+		});
+		if (res.ok) {
+			const data = await res.json();
+			summaryText = data.summary;
+		}
+		summaryLoading = false;
+	}
+
+	function copyPrompt(prompt: string) {
+		navigator.clipboard.writeText(prompt);
+		promptCopied = true;
+		setTimeout(() => { promptCopied = false; }, 2000);
+	}
 
 	// ── Settings ──────────────────────────────────────────────────
 	let settingsMode    = $state(false);
@@ -435,6 +500,27 @@
 			githubRepoQuery = '';
 		}
 	});
+
+	// ── Claude Code MCP ───────────────────────────────────────────────
+	let mcpToken      = $state('');
+	let mcpGenerating = $state(false);
+
+	async function generateMcpToken() {
+		if (!settingsProject) return;
+		mcpGenerating = true;
+		mcpToken = '';
+		const res = await fetch(`/api/projects/${settingsProject.id}/mcp-token`, { method: 'POST' });
+		if (res.ok) {
+			const data = await res.json();
+			mcpToken = data.token;
+		}
+		mcpGenerating = false;
+	}
+
+	$effect(() => {
+		if (selectedPlatform !== 'Claude Code') mcpToken = '';
+	});
+
 	let settingsSection: 'general' | 'platforms' | 'skills' = $state('general');
 
 	const settingsFilteredTools = $derived(
@@ -534,7 +620,15 @@
 	}
 
 	// ── Overlay navigation ────────────────────────────────────────
-	function openProjects() { overlayOpen = true; creatingProject = false; }
+	function openProjects() {
+		overlayOpen = true;
+		creatingProject = false;
+		if (selectedProject === null && projects.length > 0) {
+			const autoName = lastSelectedProjectName ?? projects[0].name;
+			const proj = projects.find(p => p.name === autoName) ?? projects[0];
+			selectProject(proj);
+		}
+	}
 	function openWizard() {
 		creatingProject = true; wizardStep = 1;
 		newName = ''; newIntegrations = []; newSkills = []; skillInput = ''; toolQuery = '';
@@ -698,6 +792,7 @@
 
 		{:else}
 			<!-- ── Project list + settings (slide wrap) ── -->
+			<div class="forge-workspace">
 			<div class="proj-panel-wrap">
 				<div class="proj-list-inner" class:slide-out={settingsMode}>
 					<div class="proj-list">
@@ -740,27 +835,116 @@
 				</div>
 			</div>
 
-			<!-- Project detail (analysis) -->
+			<!-- Project detail (carousel) -->
 			{#if selectedProject !== null && !settingsMode}
 				{#key selectedProject}
 					<div class="proj-detail-panel proj-analysis-panel" in:fade={{ duration: 200, delay: 40 }}>
-						{#if analysisLoading && !currentAnalysis}
-							<p class="proj-status">analyzing…</p>
-						{:else if currentAnalysis}
-							<p class="proj-status">{currentAnalysis.healthMessage}</p>
-							{#if currentAnalysis.suggestions.length > 0}
-								<ul class="proj-suggestions">
-									{#each currentAnalysis.suggestions as suggestion, i}
-										<li class="proj-suggestion-item"
-											class:suggestion-hovered={hoveredSuggestion === i}
-											onmouseenter={() => hoveredSuggestion = i}
-											onmouseleave={() => hoveredSuggestion = null}>
-											{suggestion}
-										</li>
-									{/each}
-								</ul>
-							{/if}
+
+						{#if carouselLoading}
+							<div class="carousel-wrap">
+								<p class="carousel-status">loading…</p>
+							</div>
+
+						{:else if summaryMode && activeItem}
+							<!-- Summary view -->
+							<div class="carousel-wrap" in:fade={{ duration: 160 }}>
+								{#if summaryLoading}
+									<p class="carousel-main-title" style="font-size:1.3rem;color:var(--text-dim)">reading…</p>
+								{:else}
+									<p class="carousel-group" style="margin-bottom:1.5rem">{activeItem.group}</p>
+									<p class="summary-text">{summaryText}</p>
+									<div class="summary-dests">
+										{#each activeItem.destinations as dest}
+											{#if dest.url}
+												<a class="summary-cta"
+													href={dest.url} target="_blank" rel="noopener"
+													style="color:{itemColorAt(heatMap['cta-'+dest.label]??0)};text-shadow:{itemShadowAt(heatMap['cta-'+dest.label]??0)};"
+													onmouseenter={() => heatItem('cta-'+dest.label)}
+													onmouseleave={() => coolItem('cta-'+dest.label)}>
+													{dest.label}
+												</a>
+											{:else if dest.prompt}
+												<button class="summary-cta"
+													onclick={() => copyPrompt(dest.prompt!)}
+													style="color:{itemColorAt(heatMap['cta-'+dest.label]??0)};text-shadow:{itemShadowAt(heatMap['cta-'+dest.label]??0)};"
+													onmouseenter={() => heatItem('cta-'+dest.label)}
+													onmouseleave={() => coolItem('cta-'+dest.label)}>
+													{promptCopied ? 'copied ✓' : dest.label}
+												</button>
+											{/if}
+										{/each}
+									</div>
+									<button class="carousel-back"
+										onclick={() => { summaryMode = false; }}
+										style="color:{itemColorAt(heatMap['btn-back']??0)};text-shadow:{itemShadowAt(heatMap['btn-back']??0)};"
+										onmouseenter={() => heatItem('btn-back')}
+										onmouseleave={() => coolItem('btn-back')}>
+										← back
+									</button>
+								{/if}
+							</div>
+
+						{:else if carouselItems.length === 0}
+							<!-- Empty state -->
+							<div class="carousel-wrap carousel-empty-wrap" in:fade={{ duration: 200 }}>
+								<p class="carousel-empty-msg">Nothing needs your attention right now.</p>
+								<a href="/watchtower" class="carousel-explore"
+									style="color:{itemColorAt(heatMap['explore-link']??0)};text-shadow:{itemShadowAt(heatMap['explore-link']??0)};"
+									onmouseenter={() => heatItem('explore-link')}
+									onmouseleave={() => coolItem('explore-link')}>
+									explore more in Watchtower →
+								</a>
+							</div>
+
+						{:else}
+							<!-- Carousel — zone-based hover -->
+							{@const cur  = carouselItems[carouselIndex]}
+							{@const prev = carouselIndex > 0 ? carouselItems[carouselIndex - 1] : null}
+							{@const next = carouselIndex < carouselItems.length - 1 ? carouselItems[carouselIndex + 1] : null}
+
+							<div class="carousel-zones">
+								<!-- Left zone -->
+								<button class="zone zone-left" disabled={!prev}
+									onclick={() => carouselGo(-1)}>
+									<svg class="carousel-chevron-svg carousel-chevron-left" viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,40 60,3 120,40" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+								</button>
+
+								<!-- Center zone -->
+								<div class="zone zone-center">
+									<div class="carousel-content">
+										<div class="carousel-main-title"
+											style="color:{itemColorAt(heatMap['carousel-'+cur.key]??0)};text-shadow:{itemShadowAt(heatMap['carousel-'+cur.key]??0)};">
+											{cur.title}
+										</div>
+										<p class="carousel-group">{cur.group}</p>
+										<div class="carousel-actions">
+											{#each ([
+												{ key: 'btn-take',     label: 'take action',  action: () => takeAction(cur) },
+												{ key: 'btn-progress', label: 'in progress',  action: () => setStatus(cur.key, 'in_progress') },
+												{ key: 'btn-maybe',    label: 'maybe later',  action: () => setStatus(cur.key, 'deferred') },
+												{ key: 'btn-noneed',   label: 'no need',      action: () => setStatus(cur.key, 'forget') },
+											]) as btn}
+												<button class="carousel-btn"
+													onclick={btn.action}
+													style="color:{itemColorAt(heatMap[btn.key]??0)};text-shadow:{itemShadowAt(heatMap[btn.key]??0)};"
+													onmouseenter={() => heatItem(btn.key)}
+													onmouseleave={() => coolItem(btn.key)}>
+													{btn.label}
+												</button>
+											{/each}
+										</div>
+										<p class="carousel-counter">{carouselIndex + 1} / {carouselItems.length}</p>
+									</div>
+								</div>
+
+								<!-- Right zone -->
+								<button class="zone zone-right" disabled={!next}
+									onclick={() => carouselGo(1)}>
+									<svg class="carousel-chevron-svg carousel-chevron-right" viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,40 60,3 120,40" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+								</button>
+							</div>
 						{/if}
+
 					</div>
 				{/key}
 			{/if}
@@ -857,6 +1041,31 @@
 											</a>
 										{/if}
 
+									{:else if selectedPlatform === 'Claude Code'}
+										<p class="platform-desc">
+											Watchtower acts as an MCP server. Generate a project token and paste the config snippet into your <code>.claude/settings.json</code>.
+										</p>
+										<button class="platform-action-btn"
+											disabled={mcpGenerating}
+											onclick={generateMcpToken}>
+											{mcpGenerating ? 'generating…' : mcpToken ? 'regenerate token →' : 'generate token →'}
+										</button>
+										{#if mcpToken}
+											<div class="mcp-snippet-wrap">
+												<p class="mcp-snippet-label">Add to <code>.claude/settings.json</code>:</p>
+												<pre class="mcp-snippet">{JSON.stringify({
+  mcpServers: {
+    watchtower: {
+      type: "http",
+      url: `${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp`,
+      headers: { Authorization: `Bearer ${mcpToken}` }
+    }
+  }
+}, null, 2)}</pre>
+												<p class="mcp-snippet-note">Token shown once — copy it now.</p>
+											</div>
+										{/if}
+
 									{:else if CONNECTABLE_MCPS.has(selectedPlatform)}
 										<span class="conn-badge conn-{status}">{status}</span>
 										<div class="wizard-input-row" style="margin-top:1.25rem; align-self:stretch;">
@@ -914,6 +1123,7 @@
 					{/key}
 				</div>
 			{/if}
+			</div> <!-- /forge-workspace -->
 		{/if}
 	</div>
 {/if}
@@ -998,8 +1208,8 @@
 
 	.overlay-back {
 		position: absolute;
-		top: calc(var(--nav-height, 3.5rem) + 1.25rem);
-		left: 3rem;
+		top: calc(var(--nav-height) + 1.25rem);
+		left: var(--page-mx);
 		background: transparent; border: none;
 		font-family: var(--font-mono); font-size: 1rem;
 		color: var(--text-dim); cursor: pointer; padding: 0;
@@ -1024,19 +1234,46 @@
 	}
 	.no-proj-create:hover { color: var(--text-primary); }
 
+	/* ── Forge workspace grid ──────────────────────────── */
+	/* Grid vars: --page-mx (outer margins) and --forge-nav-col (left column) in src/app.css */
+
+	.forge-workspace {
+		position: absolute;
+		top: var(--nav-height);
+		left: var(--page-mx);
+		right: var(--page-mx);
+		bottom: 0;
+		display: grid;
+		grid-template-columns: var(--forge-nav-col) 1fr var(--forge-right-col);
+		/* grid lines ↓ — remove these three lines to hide them */
+		border-top:   1px solid rgba(60, 140, 255, 0.18);
+		border-left:  1px solid rgba(220, 70, 70, 0.35);
+		border-right: 1px solid rgba(220, 70, 70, 0.35);
+	}
+
+	/* Right column boundary — mirrors left at same distance from Login as left line is from Forge */
+	.forge-workspace::after {
+		content: '';
+		position: absolute;
+		top: 0; bottom: 0;
+		right: var(--forge-right-col);
+		border-right: 1px solid rgba(60, 140, 255, 0.18);
+		pointer-events: none;
+	}
+
 	/* ── Project panel wrap (slide container) ─────────── */
 
 	.proj-panel-wrap {
-		position: absolute;
-		left: 0; top: 0; bottom: 0;
-		width: 20%;
+		position: relative;
 		overflow: hidden;
+		/* column divider grid line ↓ — remove to hide */
+		border-right: 1px solid rgba(60, 140, 255, 0.18);
 	}
 
 	.proj-list-inner {
 		position: absolute; inset: 0;
 		display: flex; flex-direction: column; justify-content: center;
-		padding-left: 5rem; padding-bottom: 3rem;
+		padding-left: 2.5rem; padding-bottom: 3rem;
 		transform: translateX(0);
 		transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
 	}
@@ -1045,7 +1282,7 @@
 	.settings-inner {
 		position: absolute; inset: 0;
 		display: flex; flex-direction: column; justify-content: center;
-		padding-left: 5rem; padding-bottom: 3rem;
+		padding-left: 2.5rem; padding-bottom: 3rem;
 		transform: translateX(100%);
 		transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
 	}
@@ -1166,42 +1403,204 @@
 	/* ── Project detail ───────────────────────────────── */
 
 	.proj-detail-panel {
-		position: absolute; left: 20%; right: 0; top: 0; bottom: 0;
 		display: flex; flex-direction: column;
 		justify-content: center; align-items: center;
-		padding-left: 3rem; padding-bottom: 3rem; padding-right: 8rem;
+		padding-bottom: 3rem;
 	}
-
-	.proj-analysis-panel {
-		left: 0;
-		padding-left: 0; padding-right: 0;
-		pointer-events: none;
-	}
-	.proj-analysis-panel > * { pointer-events: auto; }
 
 	.proj-settings-panel {
 		flex-direction: row;
 		align-items: center;
 		justify-content: flex-start;
-		padding: 0 1rem;
+		padding-left: 3rem;
 		gap: 4rem;
 	}
 
-	.proj-status {
+	/* ── Carousel ────────────────────────────────────────── */
+
+	/* Shared wrap for loading / summary / empty states */
+	.carousel-wrap {
+		display: flex; flex-direction: column;
+		align-items: center; gap: 0;
+		width: 100%;
+	}
+
+	.carousel-status {
 		font-family: var(--font-mono); font-size: 0.78rem;
-		letter-spacing: 0.05em; color: var(--text-dim);
-		margin-bottom: 2rem; line-height: 1.6;
+		letter-spacing: 0.08em; color: var(--text-dim);
 	}
 
-	.proj-suggestions { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+	/* Zone-based layout */
+	.carousel-zones {
+		display: flex;
+		align-items: stretch;
+		width: 100%; height: 100%;
+	}
 
-	.proj-suggestion-item {
+	.zone {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.zone-left, .zone-right {
+		flex: 0 0 7rem;
+		background: none; border: none;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+	.zone-left:disabled, .zone-right:disabled { cursor: default; }
+
+	.zone-center {
+		flex: 1;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: default;
+		overflow: hidden;
+		padding: 0 3rem;
+	}
+
+	/* Light vignette — always present, brightens on hover */
+	.zone-center::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: radial-gradient(
+			ellipse at 50% 50%,
+			rgba(255, 255, 255, 0.10) 0%,
+			rgba(245, 248, 255, 0.06) 30%,
+			rgba(230, 235, 255, 0.02) 58%,
+			transparent 78%
+		);
+		opacity: 0.35;
+		transition: opacity 0.7s ease;
+		pointer-events: none;
+	}
+	.zone-center:hover::before { opacity: 1; }
+
+	/* Swell: hovering center zone scales the content */
+	.carousel-content {
+		position: relative; z-index: 1;
+		display: flex; flex-direction: column;
+		align-items: center; gap: 0;
+		transition: transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1);
+	}
+	.zone-center:hover .carousel-content {
+		transform: scale(1.05);
+	}
+
+	.carousel-main-title {
+		font-family: var(--font-mono); font-size: 1.9rem;
+		letter-spacing: 0.03em; font-weight: 300;
+		text-align: center; line-height: 1.2;
+		transition: color 0.05s linear;
+	}
+
+	.carousel-group {
+		font-family: var(--font-mono); font-size: 0.62rem;
+		letter-spacing: 0.14em; text-transform: uppercase;
+		color: var(--text-dim); text-align: center;
+		margin: 0.75rem 0 0;
+	}
+
+	/* Chevrons — same SVG polyline as the landing page bottom chevron, rotated */
+	.carousel-chevron-svg {
+		width: 4rem; height: auto;
+		stroke: var(--text-muted); stroke-width: 1.2;
+		fill: none; stroke-linecap: round; stroke-linejoin: round;
+		opacity: 0;
+		transition: opacity 0.2s ease, transform 0.25s ease, stroke 0.2s ease;
+	}
+	.carousel-chevron-left  { transform: rotate(-90deg); }
+	.carousel-chevron-right { transform: rotate(90deg); }
+
+	.zone-left:not(:disabled)  .carousel-chevron-svg,
+	.zone-right:not(:disabled) .carousel-chevron-svg { opacity: 0.55; }
+
+	.zone-left:not(:disabled):hover  .carousel-chevron-svg,
+	.zone-right:not(:disabled):hover .carousel-chevron-svg {
+		opacity: 0.85;
+		stroke: var(--text-primary);
+	}
+	.zone-left:not(:disabled):hover  .carousel-chevron-left  { transform: rotate(-90deg) scale(1.15); }
+	.zone-right:not(:disabled):hover .carousel-chevron-right { transform: rotate(90deg)  scale(1.15); }
+
+	.carousel-counter {
+		font-family: var(--font-mono); font-size: 0.6rem;
+		letter-spacing: 0.1em; color: var(--text-dim);
+		opacity: 0.4; margin-top: 1.25rem;
+	}
+
+	.carousel-actions {
+		display: flex; gap: 2.5rem;
+		overflow: hidden;
+		max-height: 0;
+		margin-top: 0;
+		opacity: 0;
+		pointer-events: none;
+		transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease;
+	}
+	.zone-center:hover .carousel-actions {
+		max-height: 4rem;
+		margin-top: 2.5rem;
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.carousel-btn {
+		background: none; border: none; cursor: pointer;
+		font-family: var(--font-mono); font-size: 0.82rem;
+		letter-spacing: 0.06em;
+		padding: 0; color: var(--text-dim);
+		transition: color 0.05s linear;
+	}
+
+	/* ── Empty state ──────────────────────────────────── */
+	.carousel-empty-wrap { gap: 1rem; }
+
+	.carousel-empty-msg {
 		font-family: var(--font-mono); font-size: 1rem;
-		letter-spacing: 0.03em; color: var(--text-dim);
-		padding: 0.4rem 0; cursor: default;
-		transition: color 0.18s ease; user-select: none;
+		letter-spacing: 0.04em; color: var(--text-dim); margin: 0;
 	}
-	.proj-suggestion-item.suggestion-hovered { color: var(--text-muted); }
+
+	.carousel-explore {
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.06em; text-decoration: none;
+		color: var(--text-dim);
+		transition: color 0.05s linear;
+	}
+
+	/* ── Summary view ─────────────────────────────────── */
+	.summary-text {
+		font-family: var(--font-mono); font-size: 0.95rem;
+		letter-spacing: 0.02em; line-height: 1.75;
+		color: var(--text-muted); max-width: 30rem;
+		text-align: center; margin: 0 0 2rem;
+	}
+
+	.summary-dests {
+		display: flex; gap: 2rem; align-items: center;
+		flex-wrap: wrap; justify-content: center;
+		margin-bottom: 2rem;
+	}
+
+	.summary-cta {
+		font-family: var(--font-mono); font-size: 0.85rem;
+		letter-spacing: 0.06em; color: var(--text-dim);
+		text-decoration: none; background: none; border: none;
+		cursor: pointer; padding: 0;
+		transition: color 0.05s linear;
+	}
+
+	.carousel-back {
+		font-family: var(--font-mono); font-size: 0.72rem;
+		letter-spacing: 0.08em; color: var(--text-dim);
+		background: none; border: none; cursor: pointer;
+		padding: 0; opacity: 0.6;
+		transition: color 0.05s linear;
+	}
 
 	/* ── Type-ahead ───────────────────────────────────── */
 
@@ -1418,6 +1817,36 @@
 		font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
 		color: var(--text-dim); border: 1px solid rgba(255,255,255,0.1);
 		padding: 0.1rem 0.3rem; border-radius: 2px;
+	}
+
+	.platform-desc {
+		font-family: var(--font-mono); font-size: 0.75rem;
+		letter-spacing: 0.04em; color: var(--text-dim);
+		line-height: 1.55; margin: 0 0 0.5rem; max-width: 26rem;
+	}
+	.platform-desc code {
+		color: var(--text-muted); font-family: var(--font-mono);
+	}
+
+	.mcp-snippet-wrap {
+		margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem;
+	}
+	.mcp-snippet-label {
+		font-family: var(--font-mono); font-size: 0.7rem;
+		letter-spacing: 0.06em; color: var(--text-dim); margin: 0;
+	}
+	.mcp-snippet-label code { color: var(--text-muted); font-family: var(--font-mono); }
+	.mcp-snippet {
+		font-family: var(--font-mono); font-size: 0.68rem;
+		line-height: 1.5; color: var(--text-muted);
+		background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+		border-radius: 4px; padding: 0.75rem; margin: 0;
+		white-space: pre; overflow-x: auto; max-width: 30rem;
+	}
+	.mcp-snippet-note {
+		font-family: var(--font-mono); font-size: 0.66rem;
+		letter-spacing: 0.05em; color: var(--text-dim);
+		margin: 0; opacity: 0.7;
 	}
 
 	.platform-no-connect {

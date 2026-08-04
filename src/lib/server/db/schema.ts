@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { text, integer, sqliteTable } from 'drizzle-orm/sqlite-core';
+import { text, integer, sqliteTable, primaryKey } from 'drizzle-orm/sqlite-core';
 
 export const user = sqliteTable('user', {
 	id:            text('id').primaryKey(),
@@ -70,6 +70,30 @@ export const credentials = sqliteTable('credentials', {
 	tool:           text('tool').notNull(),
 	encryptedToken: text('encrypted_token').notNull(),
 	createdAt:      integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const mcpTokens = sqliteTable('mcp_tokens', {
+	token:     text('token').primaryKey(),
+	projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+	userId:    text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+export const itemStatus = sqliteTable('item_status', {
+	projectId:    text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+	itemKey:      text('item_key').notNull(),
+	status:       text('status').notNull(),
+	deferredUntil: integer('deferred_until', { mode: 'timestamp' }),
+	updatedAt:    integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (t) => [primaryKey({ columns: [t.projectId, t.itemKey] })]);
+
+export const activityLog = sqliteTable('activity_log', {
+	id:        text('id').primaryKey(),
+	projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+	type:      text('type').notNull().default('info'),
+	message:   text('message').notNull(),
+	source:    text('source').notNull().default('claude'),
+	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
 export const finds = sqliteTable('finds', {

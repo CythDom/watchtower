@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/stores';
+	import ThemeEditor from '$lib/components/ThemeEditor.svelte';
 
 	let { children } = $props();
 </script>
@@ -20,6 +21,8 @@
 	{@render children()}
 </main>
 
+<ThemeEditor />
+
 <style>
 	nav {
 		position: fixed;
@@ -29,13 +32,20 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 1.375rem 4.5rem;
+		padding: 1.375rem var(--page-mx);
 		z-index: 20;
 	}
 
 	.nav-left {
 		display: flex;
 		gap: 2.5rem;
+		width: var(--forge-nav-col);
+	}
+
+	.nav-right {
+		width: var(--forge-right-col);
+		display: flex;
+		justify-content: flex-end;
 	}
 
 	nav a {

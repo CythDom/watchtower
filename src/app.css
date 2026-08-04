@@ -7,12 +7,15 @@
 }
 
 :root {
-	--bg:            #1e1e1e;
-	--text-primary:  #d0d0d0;
-	--text-muted:    #888888;
-	--text-dim:      #4a4a4a;
-	--font-mono:     'Roboto Mono', monospace;
-	--nav-height:    4rem;
+	--bg:             #1e1e1e;
+	--text-primary:   #f0f0f0;
+	--text-muted:     #c0c0c0;
+	--text-dim:       #808080;
+	--font-mono:      'Roboto Mono', monospace;
+	--nav-height:     4rem;
+	--page-mx:        clamp(2rem, 4.5vw, 4.5rem);
+	--forge-nav-col:  clamp(12rem, 18vw, 20rem);
+	--forge-right-col: clamp(5rem, 7vw, 8rem);
 }
 
 html, body {
