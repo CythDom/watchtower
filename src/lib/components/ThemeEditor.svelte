@@ -4,9 +4,9 @@
 	let visible = $state(false);
 
 	let bg          = $state('#1e1e1e');
-	let textPrimary = $state('#d0d0d0');
-	let textMuted   = $state('#888888');
-	let textDim     = $state('#4a4a4a');
+	let textPrimary = $state('#f0f0f0');
+	let textMuted   = $state('#c0c0c0');
+	let textDim     = $state('#808080');
 
 	const root = () => document.documentElement;
 
@@ -59,6 +59,13 @@
 		copied = true;
 		setTimeout(() => copied = false, 1800);
 	}
+
+	let showGrid = $state(false);
+
+	$effect(() => {
+		root().style.setProperty('--grid-line-blue', showGrid ? 'rgba(60, 140, 255, 0.18)' : 'transparent');
+		root().style.setProperty('--grid-line-red',  showGrid ? 'rgba(220, 70, 70, 0.35)'  : 'transparent');
+	});
 
 	onMount(() => {
 		const handler = (e: KeyboardEvent) => {
@@ -119,8 +126,25 @@
 		<span style="color:{textDim};">dim text</span>
 	</div>
 
+	<div class="te-grid-row">
+		<span>grid</span>
+		<button class="te-grid-toggle" class:active={showGrid} onclick={() => showGrid = !showGrid}>
+			{showGrid ? 'on' : 'off'}
+		</button>
+	</div>
+
 	<button class="te-copy" onclick={copy}>{copied ? 'copied ✓' : 'copy CSS →'}</button>
 </div>
+{/if}
+
+{#if showGrid}
+	<div class="te-grid-overlay" aria-hidden="true">
+		<div class="te-grid-col te-col-margin"></div>
+		<div class="te-grid-col te-col-nav"></div>
+		<div class="te-grid-col te-col-content"></div>
+		<div class="te-grid-col te-col-right"></div>
+		<div class="te-grid-col te-col-margin"></div>
+	</div>
 {/if}
 
 <!-- Subtle toggle hint when hidden -->
@@ -239,4 +263,33 @@
 		transition: color 0.2s;
 	}
 	.te-toggle:hover { color: rgba(255,255,255,0.35); }
+
+	.te-grid-row {
+		display: flex; align-items: center; justify-content: space-between;
+		color: rgba(255,255,255,0.35);
+		letter-spacing: 0.06em;
+	}
+
+	.te-grid-toggle {
+		background: none; border: 1px solid rgba(255,255,255,0.12);
+		color: rgba(255,255,255,0.3); font-family: inherit; font-size: 0.65rem;
+		letter-spacing: 0.08em; cursor: pointer; padding: 0.15rem 0.45rem;
+		border-radius: 3px; transition: color 0.15s, border-color 0.15s;
+	}
+	.te-grid-toggle:hover { color: rgba(255,255,255,0.6); border-color: rgba(255,255,255,0.25); }
+	.te-grid-toggle.active { color: #ffb300; border-color: rgba(255,179,0,0.45); }
+
+	.te-grid-overlay {
+		position: fixed; inset: 0; z-index: 9990;
+		pointer-events: none;
+		display: grid;
+		grid-template-columns: var(--page-mx) var(--forge-nav-col) 1fr var(--forge-right-col) var(--page-mx);
+	}
+
+	.te-grid-col { height: 100%; }
+
+	.te-col-margin  { background: rgba(255, 80,  80,  0.07); }
+	.te-col-nav     { background: rgba(80,  140, 255, 0.07); }
+	.te-col-content { background: rgba(80,  255, 140, 0.04); }
+	.te-col-right   { background: rgba(80,  140, 255, 0.07); }
 </style>

@@ -96,13 +96,20 @@ Skills / Stack: ${skills.join(', ') || 'none specified'}${depStr}${avoidStr}
 Generate 4–6 specific, actionable items. Each must follow these rules exactly:
 
 Title rules:
-- Start with an imperative verb: Implement, Add, Upgrade, Enable, Connect, Explore, Refactor, Integrate, Configure, Migrate, Adopt, Secure, Optimize
-- 4–8 words total, specific to their actual stack (not generic advice)
-- Positive and forward-looking — frame as a gain, not a fix
-- Examples of good titles: "Add rate limiting to API routes", "Migrate sessions to edge-compatible storage", "Enable Drizzle Studio for local debugging"
+- Plain, conversational language — write how a teammate would say it, not a ticket title
+- Positive and actionable: describe what the developer will gain or achieve, not what's missing
+- 4–7 words, specific to their stack, no jargon or imperative verbs like "Implement" or "Configure"
+- Examples of good titles: "Protect your API from abuse", "Keep sessions working at the edge", "Browse your database without leaving code", "Rotate auth tokens automatically"
 
-Group rules — pick the single best fit:
+Type rules — pick the single best fit:
 "Code improvement" | "Security upgrade" | "Feature opportunity" | "Performance gain" | "Developer experience" | "Stack upgrade"
+
+Platform rules:
+- The specific tool, library, or service this improvement relates to (e.g. "SvelteKit", "GitHub Actions", "Drizzle", "Stripe")
+- Use the exact name from their stack, not a generic category
+
+Importance rules — pick one:
+"low" | "medium" | "high" | "critical"
 
 Context rules:
 - 1–2 sentences explaining the concrete value of taking this action
@@ -112,11 +119,11 @@ Do NOT suggest:
 - Writing tests unless the stack has zero test tooling
 - Generic documentation
 - Anything already covered by the open issues listed above
-- More than one item per group
+- More than one item per type
 - Vague advice like "improve error handling" without specifics
 
 Reply with ONLY a valid JSON array, no markdown fences or extra text:
-[{"title":"...","group":"...","context":"..."}]`;
+[{"title":"...","type":"...","platform":"...","importance":"...","context":"..."}]`;
 
 	try {
 		const msg = await anthropic.messages.create({
@@ -126,13 +133,13 @@ Reply with ONLY a valid JSON array, no markdown fences or extra text:
 		});
 		const raw = (msg.content[0] as { type: string; text: string }).text.trim()
 			.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-		const parsed: { title: string; group: string; context: string }[] = JSON.parse(raw);
+		const parsed: { title: string; type: string; platform: string; importance: string; context: string }[] = JSON.parse(raw);
 		if (!Array.isArray(parsed)) return [];
 
 		return parsed.slice(0, 6).map(item => ({
 			key:   `ai:${itemSlug(item.title)}`,
 			title: item.title,
-			group: item.group,
+			group: [item.type, item.platform, item.importance].filter(Boolean).join(' — '),
 			status: 'new',
 			destinations: [{
 				label: 'Copy Claude prompt →',

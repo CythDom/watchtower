@@ -16,6 +16,8 @@
 	--page-mx:        clamp(2rem, 4.5vw, 4.5rem);
 	--forge-nav-col:  clamp(12rem, 18vw, 20rem);
 	--forge-right-col: clamp(5rem, 7vw, 8rem);
+	--grid-line-blue: transparent;
+	--grid-line-red:  transparent;
 }
 
 html, body {

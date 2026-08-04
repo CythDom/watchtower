@@ -1,8 +1,14 @@
-﻿<script lang="ts">
+<script lang="ts">
 	import { fade } from 'svelte/transition';
+	import { onMount } from 'svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// ── URL sync (no page reload) ────────────────────────────────
+	function pushUrl(path: string) {
+		history.replaceState({}, '', path);
+	}
 
 	// ── Intro text ──────────────────────────────────────────────
 	const line1 = 'Every tool needs sharpening';
@@ -280,7 +286,6 @@
 	let newSkills       = $state<string[]>([]);
 	let skillInput      = $state('');
 
-	// wizard type-ahead
 	let toolQuery    = $state('');
 	let toolDropOpen = $state(false);
 	let toolInputEl: HTMLInputElement | null = $state(null);
@@ -359,6 +364,7 @@
 		lastSelectedProjectName = project.name;
 		heatItem(project.id);
 		settingsMode = false;
+		pushUrl('/forge/' + encodeURIComponent(project.name));
 	}
 
 	// ── Carousel ──────────────────────────────────────────────────
@@ -426,6 +432,7 @@
 		summaryMode = true;
 		summaryLoading = true;
 		if (selectedProjectData) {
+			pushUrl('/forge/' + encodeURIComponent(selectedProjectData.name) + '/' + encodeURIComponent(item.key));
 			fetch(`/api/projects/${selectedProjectData.id}/items/status`, {
 				method: 'PATCH',
 				headers: { 'content-type': 'application/json' },
@@ -438,8 +445,8 @@
 			body: JSON.stringify({ key: item.key, context: item.rawContext }),
 		});
 		if (res.ok) {
-			const data = await res.json();
-			summaryText = data.summary;
+			const d = await res.json();
+			summaryText = d.summary;
 		}
 		summaryLoading = false;
 	}
@@ -501,7 +508,7 @@
 		}
 	});
 
-	// ── Claude Code MCP ───────────────────────────────────────────────
+	// ── Claude Code MCP ───────────────────────────────────────────
 	let mcpToken      = $state('');
 	let mcpGenerating = $state(false);
 
@@ -511,8 +518,8 @@
 		mcpToken = '';
 		const res = await fetch(`/api/projects/${settingsProject.id}/mcp-token`, { method: 'POST' });
 		if (res.ok) {
-			const data = await res.json();
-			mcpToken = data.token;
+			const d = await res.json();
+			mcpToken = d.token;
 		}
 		mcpGenerating = false;
 	}
@@ -542,12 +549,16 @@
 		settingsSkills  = [...project.skills];
 		selectedProject = null;
 		heatItem('general');
+		pushUrl('/forge/' + encodeURIComponent(project.name) + '/settings');
 	}
 
 	function exitSettings() {
 		coolItem(settingsSection);
+		const proj = settingsProject;
 		settingsMode    = false;
 		settingsProject = null;
+		if (proj) selectProject(proj); // re-selects, heats, pushes URL
+		else pushUrl('/forge');
 	}
 
 	function settingsSelectTool(name: string) {
@@ -626,7 +637,7 @@
 		if (selectedProject === null && projects.length > 0) {
 			const autoName = lastSelectedProjectName ?? projects[0].name;
 			const proj = projects.find(p => p.name === autoName) ?? projects[0];
-			selectProject(proj);
+			selectProject(proj); // also calls pushUrl
 		}
 	}
 	function openWizard() {
@@ -638,19 +649,43 @@
 		if (prev) coolItem(prev.id);
 		overlayOpen = false; creatingProject = false;
 		selectedProject = null; settingsMode = false; settingsProject = null;
+		pushUrl('/forge');
 	}
 	function goBack() {
 		if (settingsMode)                         { exitSettings(); return; }
 		if (creatingProject && wizardStep > 1)    { wizardStep--; return; }
 		if (creatingProject)                      { creatingProject = false; return; }
-		if (selectedProject !== null) {
-			const prev = projects.find(p => p.name === selectedProject);
-			if (prev) coolItem(prev.id);
-			selectedProject = null;
-			return;
-		}
 		closeOverlay();
 	}
+
+	const backLabel = $derived(
+		settingsMode                      ? 'return to project' :
+		creatingProject && wizardStep > 1 ? 'back' :
+		                                    'return to Forge'
+	);
+
+	// ── Restore state from slug on load ───────────────────────────
+	onMount(() => {
+		const { initialProject, initialSection } = data;
+		if (!initialProject) return;
+		const proj = projects.find(p => p.name === initialProject);
+		if (!proj) return;
+		overlayOpen = true;
+		if (initialSection === 'settings') {
+			settingsProject = proj;
+			settingsMode    = true;
+			settingsSection = 'general';
+			settingsName    = proj.name;
+			settingsTools   = [...proj.integrations];
+			settingsSkills  = [...proj.skills];
+			heatItem('general');
+		} else {
+			// project view (or item — item summary can be loaded if needed)
+			selectedProject       = proj.name;
+			lastSelectedProjectName = proj.name;
+			heatItem(proj.id);
+		}
+	});
 </script>
 
 <!-- Delete confirmation -->
@@ -700,7 +735,7 @@
 <!-- Overlay -->
 {#if overlayOpen}
 	<div class="overlay" transition:fade={{ duration: 180 }}>
-		<button class="overlay-back" onclick={goBack}>←</button>
+		<button class="overlay-back" onclick={goBack}>← {backLabel}</button>
 
 		{#if creatingProject}
 			<!-- ── Wizard ── -->
@@ -791,7 +826,7 @@
 			</div>
 
 		{:else}
-			<!-- ── Project list + settings (slide wrap) ── -->
+			<!-- ── Project list + detail ── -->
 			<div class="forge-workspace">
 			<div class="proj-panel-wrap">
 				<div class="proj-list-inner" class:slide-out={settingsMode}>
@@ -875,7 +910,10 @@
 										{/each}
 									</div>
 									<button class="carousel-back"
-										onclick={() => { summaryMode = false; }}
+										onclick={() => {
+											summaryMode = false;
+											if (selectedProjectData) pushUrl('/forge/' + encodeURIComponent(selectedProjectData.name));
+										}}
 										style="color:{itemColorAt(heatMap['btn-back']??0)};text-shadow:{itemShadowAt(heatMap['btn-back']??0)};"
 										onmouseenter={() => heatItem('btn-back')}
 										onmouseleave={() => coolItem('btn-back')}>
@@ -1209,9 +1247,10 @@
 	.overlay-back {
 		position: absolute;
 		top: calc(var(--nav-height) + 1.25rem);
-		left: var(--page-mx);
+		left: calc(var(--page-mx) + var(--forge-nav-col));
 		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 1rem;
+		font-family: var(--font-mono); font-size: 0.72rem;
+		letter-spacing: 0.06em;
 		color: var(--text-dim); cursor: pointer; padding: 0;
 		transition: color 0.15s ease; z-index: 2;
 	}
@@ -1235,7 +1274,6 @@
 	.no-proj-create:hover { color: var(--text-primary); }
 
 	/* ── Forge workspace grid ──────────────────────────── */
-	/* Grid vars: --page-mx (outer margins) and --forge-nav-col (left column) in src/app.css */
 
 	.forge-workspace {
 		position: absolute;
@@ -1245,19 +1283,17 @@
 		bottom: 0;
 		display: grid;
 		grid-template-columns: var(--forge-nav-col) 1fr var(--forge-right-col);
-		/* grid lines ↓ — remove these three lines to hide them */
-		border-top:   1px solid rgba(60, 140, 255, 0.18);
-		border-left:  1px solid rgba(220, 70, 70, 0.35);
-		border-right: 1px solid rgba(220, 70, 70, 0.35);
+		border-top:   1px solid var(--grid-line-blue);
+		border-left:  1px solid var(--grid-line-red);
+		border-right: 1px solid var(--grid-line-red);
 	}
 
-	/* Right column boundary — mirrors left at same distance from Login as left line is from Forge */
 	.forge-workspace::after {
 		content: '';
 		position: absolute;
 		top: 0; bottom: 0;
 		right: var(--forge-right-col);
-		border-right: 1px solid rgba(60, 140, 255, 0.18);
+		border-right: 1px solid var(--grid-line-blue);
 		pointer-events: none;
 	}
 
@@ -1266,8 +1302,22 @@
 	.proj-panel-wrap {
 		position: relative;
 		overflow: hidden;
-		/* column divider grid line ↓ — remove to hide */
-		border-right: 1px solid rgba(60, 140, 255, 0.18);
+	}
+
+	.proj-panel-wrap::after {
+		content: '';
+		position: absolute;
+		top: 0; bottom: 0; right: 0;
+		width: 1px;
+		background: linear-gradient(
+			to bottom,
+			transparent 0%,
+			rgba(255, 255, 255, 0.10) 18%,
+			rgba(255, 255, 255, 0.10) 82%,
+			transparent 100%
+		);
+		pointer-events: none;
+		z-index: 1;
 	}
 
 	.proj-list-inner {
@@ -1339,67 +1389,6 @@
 	}
 	.proj-delete-btn:hover { color: rgba(220,80,60,0.85); }
 
-	/* ── Settings ─────────────────────────────────────── */
-
-	.settings-title {
-		font-family: var(--font-mono); font-size: 0.72rem;
-		letter-spacing: 0.18em; text-transform: uppercase;
-		color: var(--text-dim); margin-bottom: 1.75rem;
-	}
-
-	.settings-section-label {
-		font-family: var(--font-mono); font-size: 0.58rem;
-		letter-spacing: 0.16em; text-transform: uppercase;
-		color: var(--text-dim); margin-bottom: 0.65rem;
-	}
-
-	.settings-input {
-		background: transparent; border: none;
-		border-bottom: 1px solid rgba(255,255,255,0.12);
-		font-family: var(--font-mono); font-size: 0.9rem;
-		color: var(--text-primary); padding: 0.3rem 0;
-		outline: none; width: 100%; letter-spacing: 0.04em;
-		transition: border-color 0.2s ease;
-	}
-	.settings-input:focus { border-bottom-color: rgba(255,255,255,0.32); }
-	.settings-input::placeholder { color: var(--text-dim); }
-	.settings-input.small { font-size: 0.78rem; }
-
-	.settings-platforms { display: flex; flex-direction: column; gap: 0.4rem; }
-
-	.settings-platform-row {
-		display: flex; align-items: center; gap: 0.5rem;
-		font-family: var(--font-mono); font-size: 0.8rem;
-	}
-
-	.settings-platform-name { color: var(--text-muted); flex: 1; }
-
-	.conn-badge {
-		font-size: 0.58rem; letter-spacing: 0.1em;
-		text-transform: uppercase;
-		padding: 0.1rem 0.4rem;
-	}
-	.conn-pending   { color: rgba(255,140,50,0.7);  background: rgba(255,100,0,0.08); }
-	.conn-connected { color: rgba(100,220,100,0.7); background: rgba(50,200,50,0.08); }
-
-	.conn-btn {
-		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.62rem;
-		letter-spacing: 0.08em; color: var(--text-dim);
-		cursor: not-allowed; padding: 0;
-		opacity: 0.5;
-	}
-
-	.chip-remove {
-		background: transparent; border: none;
-		font-family: var(--font-mono); color: var(--text-dim);
-		cursor: pointer; padding: 0; font-size: 0.75rem;
-		transition: color 0.1s ease; line-height: 1;
-	}
-	.chip-remove:hover { color: var(--text-muted); }
-
-	.settings-chip-grid { margin-bottom: 0.25rem; }
-
 	/* ── Project detail ───────────────────────────────── */
 
 	.proj-detail-panel {
@@ -1418,7 +1407,6 @@
 
 	/* ── Carousel ────────────────────────────────────────── */
 
-	/* Shared wrap for loading / summary / empty states */
 	.carousel-wrap {
 		display: flex; flex-direction: column;
 		align-items: center; gap: 0;
@@ -1430,7 +1418,6 @@
 		letter-spacing: 0.08em; color: var(--text-dim);
 	}
 
-	/* Zone-based layout */
 	.carousel-zones {
 		display: flex;
 		align-items: stretch;
@@ -1462,7 +1449,6 @@
 		padding: 0 3rem;
 	}
 
-	/* Light vignette — always present, brightens on hover */
 	.zone-center::before {
 		content: '';
 		position: absolute;
@@ -1480,7 +1466,6 @@
 	}
 	.zone-center:hover::before { opacity: 1; }
 
-	/* Swell: hovering center zone scales the content */
 	.carousel-content {
 		position: relative; z-index: 1;
 		display: flex; flex-direction: column;
@@ -1505,7 +1490,6 @@
 		margin: 0.75rem 0 0;
 	}
 
-	/* Chevrons — same SVG polyline as the landing page bottom chevron, rotated */
 	.carousel-chevron-svg {
 		width: 4rem; height: auto;
 		stroke: var(--text-muted); stroke-width: 1.2;
@@ -1590,19 +1574,152 @@
 		font-family: var(--font-mono); font-size: 0.85rem;
 		letter-spacing: 0.06em; color: var(--text-dim);
 		text-decoration: none; background: none; border: none;
-		cursor: pointer; padding: 0;
-		transition: color 0.05s linear;
+		cursor: pointer; padding: 0; transition: color 0.05s linear;
 	}
 
 	.carousel-back {
-		font-family: var(--font-mono); font-size: 0.72rem;
-		letter-spacing: 0.08em; color: var(--text-dim);
-		background: none; border: none; cursor: pointer;
-		padding: 0; opacity: 0.6;
-		transition: color 0.05s linear;
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.06em; background: none; border: none;
+		cursor: pointer; padding: 0; color: var(--text-dim);
+		transition: color 0.05s linear; margin-top: 1.5rem;
 	}
 
-	/* ── Type-ahead ───────────────────────────────────── */
+	/* ── Settings panel ───────────────────────────────── */
+
+	.settings-col {
+		flex: 0 0 18rem; min-width: 0;
+		display: flex; flex-direction: column;
+	}
+
+	.platform-row {
+		display: flex; align-items: center; justify-content: space-between;
+		font-family: var(--font-mono); font-size: 0.85rem;
+		letter-spacing: 0.04em; color: var(--text-dim);
+		padding: 0.55rem 0; cursor: pointer;
+		transition: color 0.15s ease; user-select: none;
+	}
+	.platform-row:hover { color: var(--text-muted); }
+	.platform-row.platform-selected {
+		color: #ffb300;
+		text-shadow: 0 0 6px rgba(255,179,0,0.7), 0 0 22px rgba(255,150,0,0.45), 0 0 44px rgba(255,120,0,0.25);
+	}
+
+	.conn-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+	.conn-dot-connected { background: rgba(100,220,100,0.7); }
+	.conn-dot-pending   { background: rgba(255,140,50,0.45); }
+
+	.conn-badge {
+		font-size: 0.58rem; letter-spacing: 0.1em;
+		text-transform: uppercase; padding: 0.1rem 0.4rem;
+	}
+	.conn-pending   { color: rgba(255,140,50,0.7);  background: rgba(255,100,0,0.08); }
+	.conn-connected { color: rgba(100,220,100,0.7); background: rgba(50,200,50,0.08); }
+
+	.platform-settings-name {
+		font-family: var(--font-mono); font-size: 1rem;
+		letter-spacing: 0.04em; color: var(--text-muted); margin: 0 0 0.4rem;
+	}
+
+	.platform-action-btn {
+		background: transparent; border: none;
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.08em; color: var(--text-dim);
+		cursor: pointer; padding: 0; margin-top: 0.5rem; text-align: left;
+		text-decoration: none; display: inline-block;
+		transition: color 0.15s ease;
+	}
+	.platform-action-btn:not(:disabled):hover { color: var(--text-muted); }
+	.platform-action-btn:disabled { cursor: default; }
+
+	.platform-disconnect-btn {
+		background: transparent; border: none;
+		font-family: var(--font-mono); font-size: 0.72rem;
+		letter-spacing: 0.08em; color: rgba(220,80,60,0.4);
+		cursor: pointer; padding: 0; text-align: left;
+		transition: color 0.15s ease;
+	}
+	.platform-disconnect-btn:not(:disabled):hover { color: rgba(220,80,60,0.85); }
+
+	.platform-remove-btn {
+		background: transparent; border: none;
+		font-family: var(--font-mono); font-size: 0.68rem;
+		letter-spacing: 0.08em; color: rgba(255,255,255,0.15);
+		cursor: pointer; padding: 0; margin-top: auto; text-align: left;
+		transition: color 0.15s ease;
+	}
+	.platform-remove-btn:hover { color: rgba(255,255,255,0.35); }
+
+	.platform-desc {
+		font-family: var(--font-mono); font-size: 0.75rem;
+		letter-spacing: 0.04em; color: var(--text-dim);
+		line-height: 1.55; margin: 0 0 0.5rem; max-width: 26rem;
+	}
+	.platform-desc code { color: var(--text-muted); font-family: var(--font-mono); }
+
+	.platform-no-connect {
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.05em; color: var(--text-dim); margin: 0;
+	}
+
+	.proj-status {
+		font-family: var(--font-mono); font-size: 0.72rem;
+		letter-spacing: 0.06em; color: var(--text-dim); margin: 0; opacity: 0.5;
+	}
+
+	.github-repo-list {
+		display: flex; flex-direction: column; gap: 0.1rem;
+		margin-top: 0.75rem; max-height: 14rem; overflow-y: auto;
+	}
+	.github-repo-item {
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.03em; color: var(--text-dim);
+		padding: 0.35rem 0; cursor: pointer;
+		transition: color 0.15s ease;
+		display: flex; align-items: center; gap: 0.5rem;
+	}
+	.github-repo-item:hover { color: var(--text-muted); }
+	.github-repo-item.github-repo-selected { color: #ffb300; }
+	.repo-private {
+		font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
+		color: var(--text-dim); border: 1px solid rgba(255,255,255,0.1);
+		padding: 0.1rem 0.3rem; border-radius: 2px;
+	}
+
+	.mcp-snippet-wrap { margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem; }
+	.mcp-snippet-label {
+		font-family: var(--font-mono); font-size: 0.7rem;
+		letter-spacing: 0.06em; color: var(--text-dim); margin: 0;
+	}
+	.mcp-snippet-label code { color: var(--text-muted); font-family: var(--font-mono); }
+	.mcp-snippet {
+		font-family: var(--font-mono); font-size: 0.68rem; line-height: 1.5;
+		color: var(--text-muted); background: rgba(255,255,255,0.04);
+		border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+		padding: 0.75rem; margin: 0; white-space: pre; overflow-x: auto; max-width: 30rem;
+	}
+	.mcp-snippet-note {
+		font-family: var(--font-mono); font-size: 0.66rem;
+		letter-spacing: 0.05em; color: var(--text-dim); margin: 0; opacity: 0.7;
+	}
+
+	/* ── Wizard ───────────────────────────────────────── */
+
+	.wizard-step {
+		display: flex; flex-direction: column;
+		align-items: flex-start; gap: 0.75rem;
+		max-width: 24rem;
+	}
+
+	.wizard-label {
+		font-family: var(--font-mono); font-size: 1rem;
+		color: var(--text-muted); letter-spacing: 0.04em; margin: 0;
+	}
+
+	.wizard-sub {
+		font-family: var(--font-mono); font-size: 0.72rem;
+		color: var(--text-dim); letter-spacing: 0.08em; margin: 0;
+	}
+	.wizard-sub.section { margin-top: 0.75rem; }
 
 	.typeahead-wrap { position: relative; align-self: stretch; }
 
@@ -1627,25 +1744,6 @@
 		color: var(--text-dim); text-transform: uppercase;
 	}
 
-	/* ── Wizard ───────────────────────────────────────── */
-
-	.wizard-step {
-		display: flex; flex-direction: column;
-		align-items: flex-start; width: 100%; max-width: 26rem;
-	}
-
-	.wizard-label {
-		font-size: 1rem; color: var(--text-muted);
-		letter-spacing: 0.04em; margin-bottom: 1.5rem;
-	}
-
-	.wizard-sub {
-		font-size: 0.78rem; color: var(--text-dim);
-		letter-spacing: 0.04em;
-		margin-top: -0.9rem; margin-bottom: 1.75rem;
-	}
-	.wizard-sub.section { margin-top: 1.75rem; margin-bottom: 0.9rem; }
-
 	.wizard-input-row { display: flex; align-items: center; gap: 1rem; align-self: stretch; }
 
 	.wizard-input {
@@ -1658,24 +1756,16 @@
 	.wizard-input:focus { border-bottom-color: #ffb300; }
 	.wizard-input::placeholder { color: var(--text-dim); }
 	.wizard-input.small { font-size: 0.82rem; }
-	.wizard-input:-webkit-autofill,
-	.wizard-input:-webkit-autofill:hover,
-	.wizard-input:-webkit-autofill:focus {
-		-webkit-box-shadow: 0 0 0px 1000px #1a1a1a inset !important;
-		-webkit-text-fill-color: rgba(255,255,255,0.75) !important;
-		caret-color: rgba(255,255,255,0.75);
-		transition: background-color 5000s ease-in-out 0s;
-	}
 
 	.wizard-arrow {
 		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 1rem;
+		font-family: var(--font-mono); font-size: 1.1rem;
 		color: var(--text-muted); cursor: pointer; padding: 0;
-		flex-shrink: 0; transition: color 0.15s ease;
+		transition: color 0.15s ease;
 	}
-	.wizard-arrow:disabled { color: var(--text-dim); cursor: default; }
 	.wizard-arrow:not(:disabled):hover { color: var(--text-primary); }
-	.wizard-arrow.standalone { align-self: flex-end; margin-top: 1.5rem; }
+	.wizard-arrow:disabled { opacity: 0.3; cursor: default; }
+	.wizard-arrow.standalone { align-self: flex-end; margin-top: 0.5rem; }
 
 	.wizard-add {
 		background: transparent; border: none;
@@ -1686,245 +1776,81 @@
 	.wizard-add:hover { color: var(--text-muted); }
 
 	.wizard-create {
-		align-self: flex-end; background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.88rem;
-		color: var(--text-muted); letter-spacing: 0.05em;
-		cursor: pointer; padding: 0; margin-top: 2rem;
+		background: transparent; border: none;
+		font-family: var(--font-mono); font-size: 0.9rem;
+		letter-spacing: 0.06em; color: var(--text-muted);
+		cursor: pointer; padding: 0; margin-top: 1.25rem;
 		transition: color 0.15s ease;
 	}
 	.wizard-create:hover { color: var(--text-primary); }
 
-	.mcp-note {
-		font-family: var(--font-mono); font-size: 0.68rem;
-		letter-spacing: 0.04em; color: rgba(255,140,50,0.55);
-		margin-top: 0.85rem;
-	}
-
 	/* ── Chips ────────────────────────────────────────── */
 
-	.chip-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
+	.chip-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
 	.int-chip {
-		background: transparent; border: 1px solid rgba(255,255,255,0.18);
-		font-family: var(--font-mono); font-size: 0.78rem;
-		letter-spacing: 0.06em; color: var(--text-muted);
-		padding: 0.35rem 0.8rem; cursor: pointer;
-		transition: border-color 0.15s ease, color 0.15s ease;
-	}
-	.int-chip:hover { border-color: rgba(255,255,255,0.28); color: var(--text-primary); }
-	.int-chip.active { border-color: rgba(255,255,255,0.35); color: var(--text-primary); }
-
-	.skill-chip { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em; padding: 0.3rem 0.65rem; }
-
-	.skill-chip.ai {
-		border: 1px solid rgba(255,140,50,0.22);
-		color: rgba(255,140,50,0.6); background: rgba(255,100,0,0.05);
-		cursor: pointer;
-		transition: border-color 0.15s ease, color 0.15s ease;
-	}
-	.skill-chip.ai:hover { border-color: rgba(255,140,50,0.45); color: rgba(255,160,70,0.9); }
-
-	.skill-chip.user {
-		background: transparent; border: 1px solid rgba(255,255,255,0.12);
-		color: var(--text-muted); cursor: pointer;
+		font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em;
+		padding: 0.3rem 0.65rem; background: transparent; cursor: pointer;
 		transition: border-color 0.15s ease;
 	}
+	.int-chip.active {
+		border: 1px solid rgba(255,255,255,0.25); color: var(--text-muted);
+	}
+	.int-chip.active:hover { border-color: rgba(255,255,255,0.45); }
+
+	.skill-chip { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.05em; padding: 0.3rem 0.65rem; }
+	.skill-chip.user {
+		background: transparent; border: 1px solid rgba(255,255,255,0.12);
+		color: var(--text-muted); cursor: pointer; transition: border-color 0.15s ease;
+	}
 	.skill-chip.user:hover { border-color: rgba(255,255,255,0.25); }
-
-	/* ── Settings columns ────────────────────────────────── */
-
-	.settings-col {
-		flex: 0 0 calc((100% - 8rem) / 3);
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.platform-row {
-		display: flex; align-items: center; justify-content: space-between;
-		font-family: var(--font-mono); font-size: 0.85rem;
-		letter-spacing: 0.04em; color: var(--text-dim);
-		padding: 0.55rem 0; cursor: pointer;
-		transition: color 0.15s ease; user-select: none;
-	}
-	.platform-row:hover { color: var(--text-muted); }
-	.platform-row.platform-selected {
-		color: #ffb300;
-		text-shadow:
-			0 0 6px rgba(255,179,0,0.7),
-			0 0 22px rgba(255,150,0,0.45),
-			0 0 44px rgba(255,120,0,0.25);
-	}
-
-	.conn-dot {
-		width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
-	}
-	.conn-dot-connected { background: rgba(100,220,100,0.7); }
-	.conn-dot-pending   { background: rgba(255,140,50,0.45); }
-
-	.platforms-col-settings {
-		display: flex; flex-direction: column; gap: 0.4rem; flex: 1;
-	}
-
-	.platform-settings-name {
-		font-family: var(--font-mono); font-size: 1rem;
-		letter-spacing: 0.04em; color: var(--text-muted);
-		margin: 0 0 0.4rem;
-	}
-
-	.platform-action-btn {
-		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.78rem;
-		letter-spacing: 0.08em; color: var(--text-dim);
-		cursor: pointer; padding: 0; margin-top: 0.5rem; text-align: left;
-		transition: color 0.15s ease;
-	}
-	.platform-action-btn:not(:disabled):hover { color: var(--text-muted); }
-	.platform-action-btn:disabled { cursor: default; }
-
-	.platform-disconnect-btn {
-		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.72rem;
-		letter-spacing: 0.08em; color: rgba(220,80,60,0.4);
-		cursor: pointer; padding: 0; text-align: left;
-		transition: color 0.15s ease;
-	}
-	.platform-disconnect-btn:not(:disabled):hover { color: rgba(220,80,60,0.85); }
-
-	.platform-remove-btn {
-		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.68rem;
-		letter-spacing: 0.08em; color: rgba(255,255,255,0.15);
-		cursor: pointer; padding: 0; margin-top: auto; text-align: left;
-		transition: color 0.15s ease;
-	}
-	.platform-remove-btn:hover { color: rgba(255,255,255,0.35); }
-
-	.github-repo-list {
-		display: flex; flex-direction: column; gap: 0.1rem;
-		margin-top: 0.75rem; max-height: 14rem; overflow-y: auto;
-	}
-	.github-repo-item {
-		font-family: var(--font-mono); font-size: 0.78rem;
-		letter-spacing: 0.03em; color: var(--text-dim);
-		padding: 0.35rem 0; cursor: pointer;
-		transition: color 0.15s ease;
-		display: flex; align-items: center; gap: 0.5rem;
-	}
-	.github-repo-item:hover { color: var(--text-muted); }
-	.github-repo-item.github-repo-selected { color: #ffb300; }
-	.repo-private {
-		font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
-		color: var(--text-dim); border: 1px solid rgba(255,255,255,0.1);
-		padding: 0.1rem 0.3rem; border-radius: 2px;
-	}
-
-	.platform-desc {
-		font-family: var(--font-mono); font-size: 0.75rem;
-		letter-spacing: 0.04em; color: var(--text-dim);
-		line-height: 1.55; margin: 0 0 0.5rem; max-width: 26rem;
-	}
-	.platform-desc code {
-		color: var(--text-muted); font-family: var(--font-mono);
-	}
-
-	.mcp-snippet-wrap {
-		margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem;
-	}
-	.mcp-snippet-label {
-		font-family: var(--font-mono); font-size: 0.7rem;
-		letter-spacing: 0.06em; color: var(--text-dim); margin: 0;
-	}
-	.mcp-snippet-label code { color: var(--text-muted); font-family: var(--font-mono); }
-	.mcp-snippet {
-		font-family: var(--font-mono); font-size: 0.68rem;
-		line-height: 1.5; color: var(--text-muted);
+	.skill-chip.ai {
 		background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-		border-radius: 4px; padding: 0.75rem; margin: 0;
-		white-space: pre; overflow-x: auto; max-width: 30rem;
+		color: var(--text-dim); cursor: pointer; transition: background 0.15s ease;
 	}
-	.mcp-snippet-note {
+	.skill-chip.ai:hover { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+
+	.mcp-note {
 		font-family: var(--font-mono); font-size: 0.66rem;
-		letter-spacing: 0.05em; color: var(--text-dim);
-		margin: 0; opacity: 0.7;
+		letter-spacing: 0.08em; color: var(--text-dim); margin: 0;
+		opacity: 0.7;
 	}
 
-	.platform-no-connect {
-		font-family: var(--font-mono); font-size: 0.78rem;
-		letter-spacing: 0.05em; color: var(--text-dim); margin: 0;
-	}
-
-	.platform-hint {
-		font-family: var(--font-mono); font-size: 0.72rem;
-		letter-spacing: 0.06em; color: var(--text-dim);
-		margin: 0; opacity: 0.5;
-	}
-
-	/* ── Delete confirmation ──────────────────────────────── */
-
+	/* ── Delete confirmation ─────────────────────────── */
 	.delete-confirm {
-		position: fixed; inset: 0; z-index: 200;
-		background: #0a0a0a;
-		display: flex; flex-direction: column;
-		align-items: center; justify-content: center;
-		gap: 2.5rem;
+		position: fixed; inset: 0; z-index: 200; background: #0a0a0a;
+		display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.5rem;
 	}
-
 	.delete-confirm-warning {
 		font-family: var(--font-mono); font-size: 0.88rem;
-		letter-spacing: 0.08em; margin: 0;
-		color: rgb(220,70,50);
-		text-shadow:
-			0 0 6px rgba(220,60,40,0.7),
-			0 0 22px rgba(200,40,20,0.5),
-			0 0 44px rgba(180,30,10,0.3);
+		letter-spacing: 0.08em; margin: 0; color: rgb(220,70,50);
+		text-shadow: 0 0 6px rgba(220,60,40,0.7), 0 0 22px rgba(200,40,20,0.5), 0 0 44px rgba(180,30,10,0.3);
 	}
-
 	.delete-confirm-name {
-		font-family: var(--font-mono); font-size: 1.5rem;
-		letter-spacing: 0.04em; color: var(--text-primary);
-		margin: 0;
+		font-family: var(--font-mono); font-size: 1.5rem; letter-spacing: 0.04em;
+		color: var(--text-primary); margin: 0;
 	}
-
-	.delete-confirm-actions {
-		display: flex; align-items: center; gap: 3rem;
-	}
-
+	.delete-confirm-actions { display: flex; align-items: center; gap: 3rem; }
 	.delete-confirm-yes {
 		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.92rem;
-		letter-spacing: 0.08em; cursor: pointer; padding: 0;
-		color: rgb(220,70,50);
-		text-shadow:
-			0 0 6px rgba(220,60,40,0.7),
-			0 0 22px rgba(200,40,20,0.5),
-			0 0 44px rgba(180,30,10,0.3);
+		font-family: var(--font-mono); font-size: 0.92rem; letter-spacing: 0.08em;
+		cursor: pointer; padding: 0; color: rgb(220,70,50);
+		text-shadow: 0 0 6px rgba(220,60,40,0.7), 0 0 22px rgba(200,40,20,0.5), 0 0 44px rgba(180,30,10,0.3);
 		transition: text-shadow 0.2s ease, color 0.2s ease;
 	}
 	.delete-confirm-yes:hover {
 		color: rgb(255,100,80);
-		text-shadow:
-			0 0 8px rgba(255,80,60,1),
-			0 0 28px rgba(220,50,30,0.8),
-			0 0 55px rgba(200,30,10,0.5);
+		text-shadow: 0 0 8px rgba(255,80,60,1), 0 0 28px rgba(220,50,30,0.8), 0 0 55px rgba(200,30,10,0.5);
 	}
-
 	.delete-confirm-no {
 		background: transparent; border: none;
-		font-family: var(--font-mono); font-size: 0.92rem;
-		letter-spacing: 0.08em; cursor: pointer; padding: 0;
-		color: rgba(255,255,255,0.85);
-		text-shadow:
-			0 0 6px rgba(255,255,255,0.6),
-			0 0 22px rgba(255,255,255,0.35),
-			0 0 44px rgba(255,255,255,0.15);
+		font-family: var(--font-mono); font-size: 0.92rem; letter-spacing: 0.08em;
+		cursor: pointer; padding: 0; color: rgba(255,255,255,0.85);
+		text-shadow: 0 0 6px rgba(255,255,255,0.6), 0 0 22px rgba(255,255,255,0.35), 0 0 44px rgba(255,255,255,0.15);
 		transition: text-shadow 0.2s ease, color 0.2s ease;
 	}
 	.delete-confirm-no:hover {
 		color: #ffffff;
-		text-shadow:
-			0 0 8px rgba(255,255,255,1),
-			0 0 28px rgba(255,255,255,0.7),
-			0 0 55px rgba(255,255,255,0.4);
+		text-shadow: 0 0 8px rgba(255,255,255,1), 0 0 28px rgba(255,255,255,0.7), 0 0 55px rgba(255,255,255,0.4);
 	}
 </style>
