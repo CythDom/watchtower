@@ -47,6 +47,51 @@
 	const COOL_SPEED = 0.08;
 	const AMBIENT    = 0.45;
 
+	// ── Per-item heat system ────────────────────────────────────
+	const ITEM_RAMP = ['#c8c8c8', '#ffb300', '#ffe044', '#ffffff'];
+	function itemColorAt(pos: number): string {
+		const max = ITEM_RAMP.length - 1;
+		const p   = Math.max(0, Math.min(1, pos)) * max;
+		const lo  = Math.floor(p), hi = Math.min(lo + 1, max);
+		const t   = p - lo;
+		const [r1,g1,b1] = hexToRgb(ITEM_RAMP[lo]);
+		const [r2,g2,b2] = hexToRgb(ITEM_RAMP[hi]);
+		return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+	}
+	function itemShadowAt(pos: number): string {
+		if (pos < 0.25) return 'none';
+		const t = (pos - 0.25) / 0.75;
+		return [
+			`0 0 ${(4*t).toFixed(1)}px rgba(255,255,220,${(0.9*t).toFixed(2)})`,
+			`0 0 ${(14*t).toFixed(1)}px rgba(255,200,50,${(0.7*t).toFixed(2)})`,
+			`0 0 ${(32*t).toFixed(1)}px rgba(255,120,10,${(0.55*t).toFixed(2)})`,
+			`0 0 ${(70*t).toFixed(1)}px rgba(255,60,0,${(0.3*t).toFixed(2)})`,
+		].join(', ');
+	}
+
+	const ITEM_COOL_SPEED = 1.0;
+	let heatMap = $state<Record<string, number>>({});
+	const heatRafs: Record<string, number> = {};
+
+	function heatItem(key: string) {
+		if (heatRafs[key]) cancelAnimationFrame(heatRafs[key]);
+		delete heatRafs[key];
+		heatMap[key] = 1;
+	}
+	function coolItem(key: string) {
+		if (heatRafs[key]) cancelAnimationFrame(heatRafs[key]);
+		let last: number | null = null;
+		function frame(ts: number) {
+			const dt = last === null ? 0 : Math.min((ts - last) / 1000, 0.05);
+			last = ts;
+			const pos = heatMap[key] ?? 0;
+			if (pos <= 0.005) { heatMap[key] = 0; delete heatRafs[key]; return; }
+			heatMap[key] = Math.max(0, pos - ITEM_COOL_SPEED * dt);
+			heatRafs[key] = requestAnimationFrame(frame);
+		}
+		heatRafs[key] = requestAnimationFrame(frame);
+	}
+
 	let l1Pos = $state(AMBIENT), l1Target = AMBIENT, l1Raf: number | null = null;
 	const l1Color  = $derived(colorAt(l1Pos));
 	const l1Shadow = $derived(shadowAt(l1Pos));
@@ -154,7 +199,7 @@
 	];
 
 	const CONNECTABLE_MCPS = new Set([
-		'GitHub', 'GitLab', 'Slack', 'Linear', 'Jira', 'Notion', 'Figma',
+		'GitLab', 'Slack', 'Linear', 'Jira', 'Notion', 'Figma',
 		'Vercel', 'Netlify', 'Supabase', 'Stripe', 'Sentry', 'Datadog',
 		'AWS', 'Google Cloud', 'Twilio', 'Resend', 'Shopify', 'Airtable',
 		'HubSpot', 'Plaid', 'Anthropic', 'OpenAI', 'Brave Search', 'Cloudflare', 'Claude Code',
@@ -222,6 +267,7 @@
 		integrations: string[];
 		skills:       string[];
 		connections:  Record<string, string>;
+		repoFullName: string | null;
 	};
 	let projects = $state<Project[]>(data.projects ?? []);
 
@@ -298,7 +344,6 @@
 	}
 
 	// ── Project selection ─────────────────────────────────────────
-	let hoveredProject:  string | null = $state(null);
 	let selectedProject: string | null = $state(null);
 	let hoveredSuggestion: number | null = $state(null);
 
@@ -307,7 +352,10 @@
 	);
 
 	function selectProject(project: Project) {
+		const prev = projects.find(p => p.name === selectedProject);
+		if (prev && prev.id !== project.id) coolItem(prev.id);
 		selectedProject = project.name;
+		heatItem(project.id);
 		settingsMode = false;
 	}
 
@@ -353,6 +401,40 @@
 	let platformToken         = $state('');
 	let platformConnecting    = $state(false);
 	let platformDisconnecting = $state(false);
+
+	type GithubRepo = { id: number; fullName: string; private: boolean };
+	let githubRepos:        GithubRepo[] = $state([]);
+	let githubReposLoading               = $state(false);
+	let githubRepoQuery                  = $state('');
+
+	async function loadGithubRepos() {
+		if (!settingsProject) return;
+		githubReposLoading = true;
+		githubRepos = [];
+		const res = await fetch(`/api/projects/${settingsProject.id}/github`);
+		if (res.ok) githubRepos = await res.json();
+		githubReposLoading = false;
+	}
+
+	async function saveGithubRepo(fullName: string) {
+		if (!settingsProject) return;
+		await fetch(`/api/projects/${settingsProject.id}/github`, {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ repoFullName: fullName }),
+		});
+		settingsProject = { ...settingsProject, repoFullName: fullName };
+		projects = projects.map(p => p.id === settingsProject!.id ? { ...p, repoFullName: fullName } : p);
+	}
+
+	$effect(() => {
+		if (selectedPlatform === 'GitHub' && settingsProject?.connections['GitHub'] === 'connected') {
+			loadGithubRepos();
+		} else if (selectedPlatform !== 'GitHub') {
+			githubRepos = [];
+			githubRepoQuery = '';
+		}
+	});
 	let settingsSection: 'general' | 'platforms' | 'skills' = $state('general');
 
 	const settingsFilteredTools = $derived(
@@ -373,9 +455,11 @@
 		settingsTools   = [...project.integrations];
 		settingsSkills  = [...project.skills];
 		selectedProject = null;
+		heatItem('general');
 	}
 
 	function exitSettings() {
+		coolItem(settingsSection);
 		settingsMode    = false;
 		settingsProject = null;
 	}
@@ -456,6 +540,8 @@
 		newName = ''; newIntegrations = []; newSkills = []; skillInput = ''; toolQuery = '';
 	}
 	function closeOverlay() {
+		const prev = projects.find(p => p.name === selectedProject);
+		if (prev) coolItem(prev.id);
 		overlayOpen = false; creatingProject = false;
 		selectedProject = null; settingsMode = false; settingsProject = null;
 	}
@@ -463,7 +549,12 @@
 		if (settingsMode)                         { exitSettings(); return; }
 		if (creatingProject && wizardStep > 1)    { wizardStep--; return; }
 		if (creatingProject)                      { creatingProject = false; return; }
-		if (selectedProject !== null)             { selectedProject = null; return; }
+		if (selectedProject !== null) {
+			const prev = projects.find(p => p.name === selectedProject);
+			if (prev) coolItem(prev.id);
+			selectedProject = null;
+			return;
+		}
 		closeOverlay();
 	}
 </script>
@@ -488,8 +579,8 @@
 
 <!-- Intro text -->
 <div class="page" class:dimmed={hovering || overlayOpen}>
-	<p class="line line1" style="color:{l1Color};text-shadow:{l1Shadow};"
-		onmouseenter={heat1} onmouseleave={cool1}>
+	<p class="line line1" style="color:#fff8e0;text-shadow:0 0 4px rgba(255,255,220,0.9),0 0 14px rgba(255,200,50,0.7),0 0 32px rgba(255,120,10,0.55),0 0 70px rgba(255,60,0,0.3);"
+		>
 		{#each tokenize(line1) as token}
 			{#if token.space}&nbsp;{:else}<span class="char" style="--ei:{token.ei}">{token.ch}</span>{/if}
 		{/each}
@@ -612,10 +703,10 @@
 					<div class="proj-list">
 						{#each projects as project}
 							<div class="proj-list-item"
-								class:proj-hovered={hoveredProject === project.name}
 								class:proj-selected={selectedProject === project.name}
-								onmouseenter={() => hoveredProject = project.name}
-								onmouseleave={() => hoveredProject = null}
+								style="color:{itemColorAt(heatMap[project.id] ?? 0)};text-shadow:{itemShadowAt(heatMap[project.id] ?? 0)};"
+								onmouseenter={() => heatItem(project.id)}
+								onmouseleave={() => { if (selectedProject !== project.name) coolItem(project.id); }}
 								onclick={() => selectProject(project)}
 								role="button" tabindex="0">
 								<button class="proj-gear"
@@ -635,7 +726,10 @@
 						{#each (['general', 'platforms', 'skills'] as const) as section}
 							<div class="proj-list-item"
 								class:proj-selected={settingsSection === section}
-								onclick={() => { settingsSection = section; selectedPlatform = null; platformToken = ''; }}
+								style="color:{itemColorAt(heatMap[section] ?? 0)};text-shadow:{itemShadowAt(heatMap[section] ?? 0)};"
+								onmouseenter={() => heatItem(section)}
+								onmouseleave={() => { if (settingsSection !== section) coolItem(section); }}
+								onclick={() => { coolItem(settingsSection); settingsSection = section; heatItem(section); selectedPlatform = null; platformToken = ''; }}
 								role="button" tabindex="0">{section}</div>
 						{/each}
 					</div>
@@ -724,7 +818,46 @@
 								{@const status = settingsProject?.connections[selectedPlatform] ?? 'pending'}
 								<div class="settings-col" in:fade={{ duration: 160 }}>
 									<p class="platform-settings-name">{selectedPlatform}</p>
-									{#if CONNECTABLE_MCPS.has(selectedPlatform)}
+
+									{#if selectedPlatform === 'GitHub'}
+										<span class="conn-badge conn-{status}">{status}</span>
+										{#if status === 'connected'}
+											{#if githubReposLoading}
+												<p class="proj-status" style="margin-top:1.25rem;">loading repos…</p>
+											{:else}
+												{@const currentRepo = settingsProject?.repoFullName ?? null}
+												{#if currentRepo}
+													<p class="platform-settings-name" style="font-size:0.8rem;margin-top:1rem;opacity:0.7;">{currentRepo}</p>
+												{/if}
+												<div class="wizard-input-row" style="margin-top:1rem; align-self:stretch;">
+													<input class="wizard-input small" bind:value={githubRepoQuery}
+														placeholder="search repos…" />
+												</div>
+												<div class="github-repo-list">
+													{#each githubRepos.filter(r => r.fullName.toLowerCase().includes(githubRepoQuery.toLowerCase())) as repo}
+														<div class="github-repo-item"
+															class:github-repo-selected={settingsProject?.repoFullName === repo.fullName}
+															onclick={() => saveGithubRepo(repo.fullName)}
+															role="button" tabindex="0">
+															{repo.fullName}
+															{#if repo.private}<span class="repo-private">private</span>{/if}
+														</div>
+													{/each}
+												</div>
+											{/if}
+											<button class="platform-disconnect-btn"
+												disabled={platformDisconnecting}
+												onclick={() => disconnectPlatform(selectedPlatform!)}>
+												{platformDisconnecting ? 'disconnecting…' : 'disconnect'}
+											</button>
+										{:else}
+											<a class="platform-action-btn" style="display:inline-block;margin-top:1.25rem;"
+												href="/api/auth/github?project_id={settingsProject?.id}">
+												connect GitHub →
+											</a>
+										{/if}
+
+									{:else if CONNECTABLE_MCPS.has(selectedPlatform)}
 										<span class="conn-badge conn-{status}">{status}</span>
 										<div class="wizard-input-row" style="margin-top:1.25rem; align-self:stretch;">
 											<input class="wizard-input small" type="password"
@@ -746,9 +879,11 @@
 												{platformDisconnecting ? 'disconnecting…' : 'disconnect'}
 											</button>
 										{/if}
+
 									{:else}
 										<p class="platform-no-connect">no API connection needed</p>
 									{/if}
+
 									<button class="platform-remove-btn"
 										onclick={() => { settingsRemoveTool(selectedPlatform!); selectedPlatform = null; }}>
 										remove from project
@@ -923,19 +1058,10 @@
 	.proj-list-item {
 		position: relative;
 		font-family: var(--font-mono); font-size: 1.1rem;
-		letter-spacing: 0.04em; color: var(--text-dim);
+		letter-spacing: 0.04em;
 		padding: 0.55rem 0;
 		cursor: pointer;
-		transition: color 0.2s ease;
 		user-select: none;
-	}
-	.proj-list-item.proj-hovered  { color: var(--text-muted); }
-	.proj-list-item.proj-selected {
-		color: #ffb300;
-		text-shadow:
-			0 0 6px rgba(255,179,0,0.7),
-			0 0 22px rgba(255,150,0,0.45),
-			0 0 44px rgba(255,120,0,0.25);
 	}
 
 	.proj-gear {
@@ -1274,6 +1400,25 @@
 		transition: color 0.15s ease;
 	}
 	.platform-remove-btn:hover { color: rgba(255,255,255,0.35); }
+
+	.github-repo-list {
+		display: flex; flex-direction: column; gap: 0.1rem;
+		margin-top: 0.75rem; max-height: 14rem; overflow-y: auto;
+	}
+	.github-repo-item {
+		font-family: var(--font-mono); font-size: 0.78rem;
+		letter-spacing: 0.03em; color: var(--text-dim);
+		padding: 0.35rem 0; cursor: pointer;
+		transition: color 0.15s ease;
+		display: flex; align-items: center; gap: 0.5rem;
+	}
+	.github-repo-item:hover { color: var(--text-muted); }
+	.github-repo-item.github-repo-selected { color: #ffb300; }
+	.repo-private {
+		font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
+		color: var(--text-dim); border: 1px solid rgba(255,255,255,0.1);
+		padding: 0.1rem 0.3rem; border-radius: 2px;
+	}
 
 	.platform-no-connect {
 		font-family: var(--font-mono); font-size: 0.78rem;

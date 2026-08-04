@@ -53,13 +53,14 @@ export const scrapeQuota = sqliteTable('scrape_quota', {
 });
 
 export const projects = sqliteTable('projects', {
-	id:           text('id').primaryKey(),
-	userId:       text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	name:         text('name').notNull(),
-	integrations: text('integrations').notNull().default('[]'),
-	skills:       text('skills').notNull().default('[]'),
-	connections:  text('connections').notNull().default('{}'),
-	createdAt:    integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	id:            text('id').primaryKey(),
+	userId:        text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	name:          text('name').notNull(),
+	integrations:  text('integrations').notNull().default('[]'),
+	skills:        text('skills').notNull().default('[]'),
+	connections:   text('connections').notNull().default('{}'),
+	repoFullName:  text('repo_full_name'),
+	createdAt:     integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
 export const credentials = sqliteTable('credentials', {

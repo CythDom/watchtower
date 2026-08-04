@@ -71,5 +71,6 @@ function parseProject(row: typeof projects.$inferSelect) {
 		integrations: JSON.parse(row.integrations),
 		skills:       JSON.parse(row.skills),
 		connections:  JSON.parse(row.connections),
+		repoFullName: row.repoFullName ?? null,
 	};
 }

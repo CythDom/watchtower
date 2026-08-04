@@ -19,6 +19,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			integrations: JSON.parse(r.integrations),
 			skills:       JSON.parse(r.skills),
 			connections:  JSON.parse(r.connections),
+			repoFullName: r.repoFullName ?? null,
 		})),
 	};
 };
