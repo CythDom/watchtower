@@ -9,11 +9,11 @@ import { encrypt } from '$lib/server/crypto';
 
 export const GET: RequestHandler = async ({ request, url }) => {
 	const session = await auth.api.getSession({ headers: request.headers });
-	if (!session) redirect(302, '/login');
+	if (!session) throw redirect(302, '/login');
 
 	const code      = url.searchParams.get('code');
 	const projectId = url.searchParams.get('state');
-	if (!code || !projectId) redirect(302, '/forge');
+	if (!code || !projectId) throw redirect(302, '/forge');
 
 	const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
 		method: 'POST',
@@ -22,17 +22,17 @@ export const GET: RequestHandler = async ({ request, url }) => {
 			client_id:     GITHUB_CLIENT_ID,
 			client_secret: GITHUB_CLIENT_SECRET,
 			code,
-			redirect_uri:  `${url.origin}/api/auth/github/callback`,
+			redirect_uri:  `${url.origin}/api/connect/github/callback`,
 		}),
 	});
 
 	const { access_token } = await tokenRes.json();
-	if (!access_token) redirect(302, '/forge');
+	if (!access_token) throw redirect(302, '/forge');
 
 	const project = await db.select().from(projects)
 		.where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
 		.get();
-	if (!project) redirect(302, '/forge');
+	if (!project) throw redirect(302, '/forge');
 
 	const encryptedToken = encrypt(access_token);
 	const existing = await db.select().from(credentials)
@@ -54,5 +54,5 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		.set({ connections: JSON.stringify(conns) })
 		.where(eq(projects.id, projectId));
 
-	redirect(302, '/forge');
+	throw redirect(302, '/forge');
 };

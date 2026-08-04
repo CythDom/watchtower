@@ -852,7 +852,7 @@
 											</button>
 										{:else}
 											<a class="platform-action-btn" style="display:inline-block;margin-top:1.25rem;"
-												href="/api/auth/github?project_id={settingsProject?.id}">
+												href="/api/connect/github?project_id={settingsProject?.id}">
 												connect GitHub →
 											</a>
 										{/if}
