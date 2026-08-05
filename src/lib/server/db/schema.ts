@@ -1,102 +1,102 @@
 import { sql } from 'drizzle-orm';
-import { text, integer, sqliteTable, primaryKey } from 'drizzle-orm/sqlite-core';
+import { text, integer, boolean, timestamp, pgTable, primaryKey } from 'drizzle-orm/pg-core';
 
-export const user = sqliteTable('user', {
+export const user = pgTable('user', {
 	id:            text('id').primaryKey(),
 	name:          text('name').notNull(),
 	email:         text('email').notNull().unique(),
-	emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+	emailVerified: boolean('email_verified').notNull().default(false),
 	image:         text('image'),
-	createdAt:     integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-	updatedAt:     integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+	createdAt:     timestamp('created_at').notNull().default(sql`now()`),
+	updatedAt:     timestamp('updated_at').notNull().default(sql`now()`)
 });
 
-export const session = sqliteTable('session', {
+export const session = pgTable('session', {
 	id:        text('id').primaryKey(),
-	expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+	expiresAt: timestamp('expires_at').notNull(),
 	token:     text('token').notNull().unique(),
 	ipAddress: text('ip_address'),
 	userAgent: text('user_agent'),
 	userId:    text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-	updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+	createdAt: timestamp('created_at').notNull().default(sql`now()`),
+	updatedAt: timestamp('updated_at').notNull().default(sql`now()`)
 });
 
-export const account = sqliteTable('account', {
-	id:                   text('id').primaryKey(),
-	accountId:            text('account_id').notNull(),
-	providerId:           text('provider_id').notNull(),
-	userId:               text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	accessToken:          text('access_token'),
-	refreshToken:         text('refresh_token'),
-	idToken:              text('id_token'),
-	accessTokenExpiresAt: integer('access_token_expires_at', { mode: 'timestamp' }),
-	refreshTokenExpiresAt: integer('refresh_token_expires_at', { mode: 'timestamp' }),
-	scope:                text('scope'),
-	password:             text('password'),
-	createdAt:            integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-	updatedAt:            integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+export const account = pgTable('account', {
+	id:                    text('id').primaryKey(),
+	accountId:             text('account_id').notNull(),
+	providerId:            text('provider_id').notNull(),
+	userId:                text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	accessToken:           text('access_token'),
+	refreshToken:          text('refresh_token'),
+	idToken:               text('id_token'),
+	accessTokenExpiresAt:  timestamp('access_token_expires_at'),
+	refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+	scope:                 text('scope'),
+	password:              text('password'),
+	createdAt:             timestamp('created_at').notNull().default(sql`now()`),
+	updatedAt:             timestamp('updated_at').notNull().default(sql`now()`)
 });
 
-export const verification = sqliteTable('verification', {
+export const verification = pgTable('verification', {
 	id:         text('id').primaryKey(),
 	identifier: text('identifier').notNull(),
 	value:      text('value').notNull(),
-	expiresAt:  integer('expires_at', { mode: 'timestamp' }).notNull(),
-	createdAt:  integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-	updatedAt:  integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`)
+	expiresAt:  timestamp('expires_at').notNull(),
+	createdAt:  timestamp('created_at').default(sql`now()`),
+	updatedAt:  timestamp('updated_at').default(sql`now()`)
 });
 
-export const scrapeQuota = sqliteTable('scrape_quota', {
+export const scrapeQuota = pgTable('scrape_quota', {
 	userId:        text('user_id').primaryKey().references(() => user.id),
-	lastScrapedAt: integer('last_scraped_at', { mode: 'timestamp' }).notNull(),
+	lastScrapedAt: timestamp('last_scraped_at').notNull(),
 });
 
-export const projects = sqliteTable('projects', {
-	id:            text('id').primaryKey(),
-	userId:        text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	name:          text('name').notNull(),
-	integrations:  text('integrations').notNull().default('[]'),
-	skills:        text('skills').notNull().default('[]'),
-	connections:   text('connections').notNull().default('{}'),
-	repoFullName:  text('repo_full_name'),
-	createdAt:     integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+export const projects = pgTable('projects', {
+	id:           text('id').primaryKey(),
+	userId:       text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	name:         text('name').notNull(),
+	integrations: text('integrations').notNull().default('[]'),
+	skills:       text('skills').notNull().default('[]'),
+	connections:  text('connections').notNull().default('{}'),
+	repoFullName: text('repo_full_name'),
+	createdAt:    timestamp('created_at').notNull().default(sql`now()`),
 });
 
-export const credentials = sqliteTable('credentials', {
+export const credentials = pgTable('credentials', {
 	id:             text('id').primaryKey(),
 	projectId:      text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
 	userId:         text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
 	tool:           text('tool').notNull(),
 	encryptedToken: text('encrypted_token').notNull(),
-	createdAt:      integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	createdAt:      timestamp('created_at').notNull().default(sql`now()`),
 });
 
-export const mcpTokens = sqliteTable('mcp_tokens', {
+export const mcpTokens = pgTable('mcp_tokens', {
 	token:     text('token').primaryKey(),
 	projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
 	userId:    text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	createdAt: timestamp('created_at').notNull().default(sql`now()`),
 });
 
-export const itemStatus = sqliteTable('item_status', {
-	projectId:    text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-	itemKey:      text('item_key').notNull(),
-	status:       text('status').notNull(),
-	deferredUntil: integer('deferred_until', { mode: 'timestamp' }),
-	updatedAt:    integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+export const itemStatus = pgTable('item_status', {
+	projectId:     text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+	itemKey:       text('item_key').notNull(),
+	status:        text('status').notNull(),
+	deferredUntil: timestamp('deferred_until'),
+	updatedAt:     timestamp('updated_at').notNull().default(sql`now()`),
 }, (t) => [primaryKey({ columns: [t.projectId, t.itemKey] })]);
 
-export const activityLog = sqliteTable('activity_log', {
+export const activityLog = pgTable('activity_log', {
 	id:        text('id').primaryKey(),
 	projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
 	type:      text('type').notNull().default('info'),
 	message:   text('message').notNull(),
 	source:    text('source').notNull().default('claude'),
-	createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	createdAt: timestamp('created_at').notNull().default(sql`now()`),
 });
 
-export const finds = sqliteTable('finds', {
+export const finds = pgTable('finds', {
 	id:        text('id').primaryKey(),
 	title:     text('title').notNull(),
 	url:       text('url').notNull(),
@@ -104,5 +104,14 @@ export const finds = sqliteTable('finds', {
 	topic:     text('topic').notNull().default(''),
 	relevance: integer('relevance').notNull().default(0),
 	points:    integer('points').notNull().default(0),
-	scrapedAt: integer('scraped_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+	scrapedAt: timestamp('scraped_at').notNull().default(sql`now()`),
+});
+
+export const userTags = pgTable('user_tags', {
+	id:        text('id').primaryKey(),
+	userId:    text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	tag:       text('tag').notNull(),
+	source:    text('source').notNull().default('standalone'),
+	rating:    integer('rating').notNull().default(3),
+	createdAt: timestamp('created_at').notNull().default(sql`now()`),
 });

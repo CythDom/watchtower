@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785949941892,
+      "tag": "0000_dapper_shard",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785953158493,
+      "tag": "0001_yielding_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785955505013,
+      "tag": "0002_romantic_red_ghost",
+      "breakpoints": true
+    }
+  ]
+}

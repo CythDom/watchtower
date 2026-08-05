@@ -1,0 +1,1 @@
+ALTER TABLE "user_tags" ADD COLUMN "rating" integer DEFAULT 3 NOT NULL;
