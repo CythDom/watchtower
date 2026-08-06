@@ -115,3 +115,12 @@ export const userTags = pgTable('user_tags', {
 	rating:    integer('rating').notNull().default(3),
 	createdAt: timestamp('created_at').notNull().default(sql`now()`),
 });
+
+export const userSkills = pgTable('user_skills', {
+	id:        text('id').primaryKey(),
+	userId:    text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+	skill:     text('skill').notNull(),
+	level:     integer('level').notNull().default(0),
+	source:    text('source').notNull().default('onboarding'),
+	createdAt: timestamp('created_at').notNull().default(sql`now()`),
+});

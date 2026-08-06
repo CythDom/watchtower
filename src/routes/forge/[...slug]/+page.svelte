@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -12,7 +13,7 @@
 
 	// ── Intro text ──────────────────────────────────────────────
 	const line1 = 'Every tool needs sharpening';
-	const line2 = 'See Latest Insights →';
+	const line2 = 'Improve your skills →';
 
 	function tokenize(str: string, offset = 0) {
 		let charIdx = 0;
@@ -714,8 +715,9 @@
 			{#if token.space}&nbsp;{:else}<span class="char" style="--ei:{token.ei}">{token.ch}</span>{/if}
 		{/each}
 	</p>
-	<p class="line line2" style="color:{l2Color};text-shadow:{l2Shadow};"
-		onmouseenter={heat2} onmouseleave={cool2}>
+	<p class="line line2" style="color:{l2Color};text-shadow:{l2Shadow};cursor:pointer"
+		onmouseenter={heat2} onmouseleave={cool2} onclick={() => goto('/skills')}
+		role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && goto('/skills')}>
 		{#each tokenize(line2, 24 + 4) as token}
 			{#if token.space}&nbsp;{:else}<span class="char" style="--ei:{token.ei}">{token.ch}</span>{/if}
 		{/each}

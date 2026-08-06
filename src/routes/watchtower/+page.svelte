@@ -200,12 +200,6 @@
 		standaloneTags = [...standaloneTags, ...data.tags];
 	}
 
-	let onboarding        = $state(false);
-	let onboardingPrompt  = $state('');
-	let onboardingLoading = $state(false);
-	let onboardingError   = $state<string | null>(null);
-	// newest-first list of raw entries the user has typed
-	let onboardingEntries = $state<string[]>([]);
 
 	async function loadTags() {
 		try {
@@ -214,47 +208,11 @@
 				const data = await res.json() as { standalone: UserTag[]; projectTags: string[] };
 				standaloneTags = data.standalone;
 				projectTags    = data.projectTags;
-				if (standaloneTags.length === 0) onboarding = true;
 			}
 		} catch {}
 		tagsReady = true;
 	}
 
-	function addEntry() {
-		const v = onboardingPrompt.trim();
-		if (!v) return;
-		onboardingEntries = [v, ...onboardingEntries];
-		onboardingPrompt  = '';
-	}
-
-	async function finishOnboarding() {
-		if (onboardingEntries.length === 0 || onboardingLoading) return;
-		onboardingLoading = true;
-		onboardingError   = null;
-		try {
-			const combined = [...onboardingEntries].reverse().join('. ');
-			const res  = await fetch('/api/tags', {
-				method:  'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body:    JSON.stringify({ prompt: combined }),
-			});
-			if (!res.ok) {
-				onboardingError   = `failed to save (${res.status})`;
-				onboardingLoading = false;
-				return;
-			}
-			const data = await res.json() as { tags: UserTag[] };
-			// merge with any existing tags rather than replacing
-			standaloneTags = [...standaloneTags, ...data.tags];
-		} catch (e) {
-			onboardingError   = 'connection error';
-			onboardingLoading = false;
-			return;
-		}
-		onboarding = false;
-		loadFinds();
-		onboardingLoading = false;
-	}
 
 	async function removeTag(id: string) {
 		await fetch(`/api/tags/${id}`, { method: 'DELETE' });
@@ -383,40 +341,9 @@
 	style="background-position: {panX}% {panY}%"
 ></div>
 
-<!-- Onboarding overlay -->
-{#if onboarding}
-<div class="onboarding">
-	<div class="ob-anchor">
-		<p class="ob-title">Set your sights ahead</p>
-		<p class="ob-sub">Tell watchtower what you want to see</p>
-		<input
-			class="ob-input"
-			type="text"
-			placeholder="e.g. SvelteKit, AI, web security, open source tooling…"
-			bind:value={onboardingPrompt}
-			onkeydown={(e) => e.key === 'Enter' && addEntry()}
-			disabled={onboardingLoading}
-			autofocus
-		/>
-		<button
-			class="ob-continue"
-			onclick={finishOnboarding}
-			disabled={onboardingEntries.length === 0 || onboardingLoading}
-		>
-			{onboardingLoading ? 'reading…' : 'continue →'}
-		</button>
-		{#if onboardingError}<p class="ob-error">{onboardingError}</p>{/if}
-		<div class="ob-queue">
-			{#each onboardingEntries as entry, i (entry + i)}
-				<p class="ob-entry" style="color: rgba(255,255,255,{Math.max(0.05, 0.22 - i * 0.03).toFixed(3)})">{entry}</p>
-			{/each}
-		</div>
-	</div>
-</div>
-{/if}
 
 <!-- Intro text -->
-<div class="page" class:hidden={!textShown || onboarding || !tagsReady || editingTags}>
+<div class="page" class:hidden={!textShown || !tagsReady || editingTags}>
 	<p
 		class="line line1"
 		style="color: {l1Color}; text-shadow: {l1Shadow};"
@@ -750,116 +677,10 @@
 
 	/* ── Onboarding ───────────────────────────────────── */
 
-	.onboarding {
-		position: fixed;
-		inset: 0;
-		z-index: 5;
-		overflow: hidden;
-		animation: fadeIn 0.6s ease both;
-	}
 
 	@keyframes fadeIn {
 		from { opacity: 0; }
 		to   { opacity: 1; }
-	}
-
-	/* anchors title + input to upper-center; queue grows down from here */
-	.ob-anchor {
-		position: absolute;
-		/* fixed top positions the static content (title+sub+input+continue ≈ 10rem)
-		   so it appears centered; queue grows downward from here */
-		top: calc(50% - 5rem);
-		left: 50%;
-		transform: translateX(-50%);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1.1rem;
-		width: min(480px, calc(100vw - 3rem));
-		text-align: center;
-	}
-
-	.ob-title {
-		margin: 0;
-		font-size: 1.4rem;
-		color: var(--text-primary);
-		letter-spacing: 0.04em;
-		font-weight: 300;
-	}
-
-	.ob-sub {
-		margin: 0;
-		font-size: 0.8rem;
-		color: var(--text-dim);
-		letter-spacing: 0.1em;
-	}
-
-	.ob-input {
-		background: transparent;
-		border: none;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-		font-family: var(--font-mono);
-		font-size: 0.8rem;
-		color: var(--text-primary);
-		letter-spacing: 0.05em;
-		padding: 0.5rem 0;
-		width: 100%;
-		outline: none;
-		text-align: center;
-		transition: border-color 0.2s ease;
-		margin-top: 0.4rem;
-	}
-
-	.ob-input::placeholder { color: var(--text-dim); }
-	.ob-input:focus { border-bottom-color: rgba(255, 255, 255, 0.28); }
-	.ob-input:disabled { opacity: 0.4; }
-
-	/* queue grows downward from the input; no overflow clipping — items drift off page */
-	.ob-queue {
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-		width: 100%;
-		margin-top: 0.25rem;
-	}
-
-	.ob-entry {
-		margin: 0;
-		padding: 0.45rem 0;
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		color: var(--text-primary);
-		letter-spacing: 0.06em;
-		animation: entrySlide 0.3s ease both;
-		text-align: center;
-	}
-
-	@keyframes entrySlide {
-		from { opacity: 0; transform: translateY(-6px); }
-		to   { opacity: 1; transform: translateY(0); }
-	}
-
-	.ob-continue {
-		background: transparent;
-		border: none;
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		letter-spacing: 0.1em;
-		color: var(--text-dim);
-		cursor: pointer;
-		padding: 0;
-		white-space: nowrap;
-		transition: color 0.2s ease, opacity 0.2s ease;
-	}
-
-	.ob-continue:hover:not(:disabled) { color: var(--text-muted); }
-	.ob-continue:disabled { opacity: 0.2; cursor: default; }
-
-	.ob-error {
-		margin: 0;
-		font-size: 0.6rem;
-		color: var(--text-dim);
-		letter-spacing: 0.08em;
 	}
 
 	/* ── Discovery panel ──────────────────────────────── */

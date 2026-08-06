@@ -1,0 +1,134 @@
+<script lang="ts">
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	interface UserSkill { id: string; skill: string; level: number; source: string }
+
+	const RAMP = ['#909090', '#ffb300', '#ffe044', '#ffffff'];
+
+	function hexToRgb(h: string): [number, number, number] {
+		const n = parseInt(h.slice(1), 16);
+		return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+	}
+
+	function colorAt(pos: number): string {
+		const max = RAMP.length - 1;
+		const p   = Math.max(0, Math.min(1, pos)) * max;
+		const lo  = Math.floor(p), hi = Math.min(lo + 1, max);
+		const t   = p - lo;
+		const [r1,g1,b1] = hexToRgb(RAMP[lo]);
+		const [r2,g2,b2] = hexToRgb(RAMP[hi]);
+		return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+	}
+
+	function shadowAt(pos: number): string {
+		if (pos < 0.52) return 'none';
+		const t = (pos - 0.52) / 0.48;
+		return [
+			`0 0 ${(6*t).toFixed(1)}px rgba(255,255,255,${t.toFixed(2)})`,
+			`0 0 ${(22*t).toFixed(1)}px rgba(255,215,0,${(0.8*t).toFixed(2)})`,
+			`0 0 ${(42*t).toFixed(1)}px rgba(255,140,0,${(0.6*t).toFixed(2)})`,
+		].join(', ');
+	}
+
+	function hashSeed(s: string): number {
+		let h = 0;
+		for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+		return h;
+	}
+
+	function shuffleSeeded<T>(arr: T[], seed: number): T[] {
+		const out = [...arr];
+		for (let i = out.length - 1; i > 0; i--) {
+			const x = Math.sin(seed + i) * 10000;
+			const j = Math.floor((x - Math.floor(x)) * (i + 1));
+			[out[i], out[j]] = [out[j], out[i]];
+		}
+		return out;
+	}
+
+	let skills = $state<UserSkill[]>(data.skills as UserSkill[]);
+	const seed = hashSeed(data.userId);
+
+	const displaySkills = $derived.by(() => {
+		const byLevel = new Map<number, UserSkill[]>();
+		for (const s of skills) {
+			const g = byLevel.get(s.level) ?? [];
+			g.push(s);
+			byLevel.set(s.level, g);
+		}
+		return [...byLevel.entries()]
+			.sort(([a], [b]) => b - a)
+			.flatMap(([level, items]) => shuffleSeeded(items, seed + level));
+	});
+
+	async function practice(skill: UserSkill) {
+		if (skill.level >= 25) return;
+		const next = skill.level + 1;
+		skills = skills.map(s => s.id === skill.id ? { ...s, level: next } : s);
+		await fetch(`/api/skills/${skill.id}`, {
+			method:  'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body:    JSON.stringify({ level: next }),
+		});
+	}
+</script>
+
+<div class="skills-page">
+	{#if skills.length === 0}
+		<p class="empty">no skills yet — complete onboarding to begin</p>
+	{:else}
+		<div class="skills-cloud">
+			{#each displaySkills as skill (skill.id)}
+				<button
+					class="skill-word"
+					class:maxed={skill.level >= 25}
+					style="color:{colorAt(skill.level / 25)};text-shadow:{shadowAt(skill.level / 25)}"
+					onclick={() => practice(skill)}
+					title="level {skill.level} / 25 — click to practice"
+				>{skill.skill}</button>
+			{/each}
+		</div>
+	{/if}
+</div>
+
+<style>
+	.skills-page {
+		padding: 5.5rem var(--page-mx) 4rem;
+		min-height: 100vh;
+	}
+
+	.skills-cloud {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.9rem 2.2rem;
+		align-items: baseline;
+	}
+
+	.skill-word {
+		background: transparent;
+		border: none;
+		font-family: var(--font-mono);
+		font-size: 0.85rem;
+		letter-spacing: 0.06em;
+		cursor: pointer;
+		padding: 0.1rem 0;
+		line-height: 1.7;
+		transition: filter 0.15s ease, color 0.35s ease, text-shadow 0.35s ease;
+	}
+
+	.skill-word:hover {
+		filter: brightness(1.55) saturate(0.45);
+	}
+
+	.skill-word.maxed {
+		cursor: default;
+	}
+
+	.empty {
+		color: var(--text-dim);
+		font-size: 0.75rem;
+		letter-spacing: 0.08em;
+	}
+</style>
