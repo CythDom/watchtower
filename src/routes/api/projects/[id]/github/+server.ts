@@ -7,13 +7,13 @@ import { eq, and } from 'drizzle-orm';
 import { decrypt } from '$lib/server/crypto';
 
 async function getToken(projectId: string, userId: string): Promise<string | null> {
-	const cred = await db.select().from(credentials)
+	const [cred] = await db.select().from(credentials)
 		.where(and(eq(credentials.projectId, projectId), eq(credentials.tool, 'GitHub')))
-		.get();
+		.limit(1);
 	if (!cred) return null;
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
-		.get();
+		.limit(1);
 	if (!project) return null;
 	return decrypt(cred.encryptedToken);
 }
@@ -42,9 +42,9 @@ export const PUT: RequestHandler = async ({ request, params }) => {
 
 	const { repoFullName } = await request.json();
 
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, params.id), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) return json({ error: 'not found' }, { status: 404 });
 
 	await db.update(projects).set({ repoFullName: repoFullName ?? null }).where(eq(projects.id, params.id));

@@ -13,16 +13,16 @@ export const POST: RequestHandler = async ({ request, params }) => {
 	const { tool, token } = await request.json();
 	if (!tool || !token?.trim()) return json({ error: 'tool and token required' }, { status: 400 });
 
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, params.id), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) return json({ error: 'not found' }, { status: 404 });
 
 	const encryptedToken = encrypt(token.trim());
 
-	const existing = await db.select().from(credentials)
+	const [existing] = await db.select().from(credentials)
 		.where(and(eq(credentials.projectId, params.id), eq(credentials.tool, tool)))
-		.get();
+		.limit(1);
 
 	if (existing) {
 		await db.update(credentials)
@@ -54,9 +54,9 @@ export const DELETE: RequestHandler = async ({ request, params, url }) => {
 	const tool = url.searchParams.get('tool');
 	if (!tool) return json({ error: 'tool required' }, { status: 400 });
 
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, params.id), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) return json({ error: 'not found' }, { status: 404 });
 
 	await db.delete(credentials)

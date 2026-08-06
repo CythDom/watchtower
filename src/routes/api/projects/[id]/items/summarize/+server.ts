@@ -13,9 +13,9 @@ export const POST: RequestHandler = async ({ request, params }) => {
 	const session = await auth.api.getSession({ headers: request.headers });
 	if (!session) return json({ error: 'unauthorized' }, { status: 401 });
 
-	const project = await db.select({ id: projects.id }).from(projects)
+	const [project] = await db.select({ id: projects.id }).from(projects)
 		.where(and(eq(projects.id, params.id), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) return json({ error: 'not found' }, { status: 404 });
 
 	const { context } = await request.json();

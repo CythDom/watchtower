@@ -29,15 +29,15 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	const { access_token } = await tokenRes.json();
 	if (!access_token) throw redirect(302, '/forge');
 
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) throw redirect(302, '/forge');
 
 	const encryptedToken = encrypt(access_token);
-	const existing = await db.select().from(credentials)
+	const [existing] = await db.select().from(credentials)
 		.where(and(eq(credentials.projectId, projectId), eq(credentials.tool, 'GitHub')))
-		.get();
+		.limit(1);
 
 	if (existing) {
 		await db.update(credentials).set({ encryptedToken }).where(eq(credentials.id, existing.id));

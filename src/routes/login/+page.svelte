@@ -5,17 +5,30 @@
 	let email    = $state('');
 	let password = $state('');
 	let error    = $state('');
+	let noAccount = $state(false);
 	let loading  = $state(false);
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		error = '';
+		noAccount = false;
 		loading = true;
 
 		const result = await signIn.email({ email, password });
 
 		if (result.error) {
-			error = result.error.message ?? 'Sign in failed.';
+			const check = await fetch('/api/check-email', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ email }),
+			});
+			const { exists } = await check.json();
+
+			if (!exists) {
+				noAccount = true;
+			} else {
+				error = 'incorrect password';
+			}
 			loading = false;
 		} else {
 			goto('/forge');
@@ -45,7 +58,10 @@
 		</div>
 
 		{#if error}
-			<p class="auth-error">{error}</p>
+			<p class="auth-error">{error} — <a href="/login" onclick={(e) => { e.preventDefault(); error = ''; }}>forgot password?</a></p>
+		{/if}
+		{#if noAccount}
+			<p class="auth-error">no account found — <a href="/register">create one</a></p>
 		{/if}
 
 		<button type="submit" class="auth-btn" disabled={loading}>
@@ -157,9 +173,9 @@
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 	}
-	.auth-switch a {
+	.auth-switch a, .auth-error a {
 		color: var(--text-muted);
 		transition: color 0.2s ease;
 	}
-	.auth-switch a:hover { color: var(--text-primary); }
+	.auth-switch a:hover, .auth-error a:hover { color: var(--text-primary); }
 </style>

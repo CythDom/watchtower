@@ -16,11 +16,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	const isOwner = session.user.email === OWNER;
 
 	if (!isOwner) {
-		const quota = await db
+		const [quota] = await db
 			.select()
 			.from(scrapeQuota)
 			.where(eq(scrapeQuota.userId, session.user.id))
-			.get();
+			.limit(1);
 
 		if (quota) {
 			const hoursSince = (Date.now() - quota.lastScrapedAt.getTime()) / 3_600_000;

@@ -32,13 +32,14 @@ const TOOLS = [
 ];
 
 async function findProjectByToken(token: string) {
-	const row = await db.select({ projectId: mcpTokens.projectId })
+	const [row] = await db.select({ projectId: mcpTokens.projectId })
 		.from(mcpTokens)
 		.where(eq(mcpTokens.token, token))
-		.get();
+		.limit(1);
 	if (!row) return null;
 
-	return db.select().from(projects).where(eq(projects.id, row.projectId)).get();
+	const [project] = await db.select().from(projects).where(eq(projects.id, row.projectId)).limit(1);
+	return project;
 }
 
 export const POST: RequestHandler = async ({ request }) => {

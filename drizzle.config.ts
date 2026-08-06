@@ -1,10 +1,14 @@
 import { defineConfig } from 'drizzle-kit';
+import { config } from 'dotenv';
+
+config({ path: '.env.local' });
+config({ path: '.env' });
 
 export default defineConfig({
 	schema:    './src/lib/server/db/schema.ts',
 	out:       './drizzle',
-	dialect:   'sqlite',
+	dialect:   'postgresql',
 	dbCredentials: {
-		url: process.env.DB_URL ?? 'file:./watchtower.db'
+		url: process.env.DATABASE_URL!
 	}
 });

@@ -156,9 +156,9 @@ export const GET: RequestHandler = async ({ request, params }) => {
 	const session = await auth.api.getSession({ headers: request.headers });
 	if (!session) return json({ error: 'unauthorized' }, { status: 401 });
 
-	const project = await db.select().from(projects)
+	const [project] = await db.select().from(projects)
 		.where(and(eq(projects.id, params.id), eq(projects.userId, session.user.id)))
-		.get();
+		.limit(1);
 	if (!project) return json({ error: 'not found' }, { status: 404 });
 
 	const integrations: string[] = JSON.parse(project.integrations ?? '[]');
@@ -172,9 +172,9 @@ export const GET: RequestHandler = async ({ request, params }) => {
 	const raw: ActionItem[] = [];
 
 	// ── GitHub + AI in parallel ──────────────────────────────────────
-	const cred = await db.select().from(credentials)
+	const [cred] = await db.select().from(credentials)
 		.where(and(eq(credentials.projectId, params.id), eq(credentials.tool, 'GitHub')))
-		.get();
+		.limit(1);
 
 	let ghToken = '';
 	let repo    = '';
