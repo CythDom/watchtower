@@ -4,6 +4,7 @@
 	import { signOut } from '$lib/auth-client';
 	import { goto } from '$app/navigation';
 	import ThemeEditor from '$lib/components/ThemeEditor.svelte';
+	import { skillsSearch } from '$lib/stores/skillsSearch';
 
 	let { children, data } = $props();
 
@@ -71,11 +72,21 @@
 </script>
 
 <nav>
-	<div class="nav-left">
+	<div class="nav-left" class:with-search={$page.url.pathname.startsWith('/skills')}>
 		<a href="/watchtower" class:active={$page.url.pathname.startsWith('/watchtower')}>Watchtower</a>
 		<a href="/hall"       class:active={$page.url.pathname.startsWith('/hall')}>Iron×Iron</a>
 		<a href="/forge"      class:active={$page.url.pathname.startsWith('/forge')}>Forge</a>
 		<a href="/skills"     class:active={$page.url.pathname.startsWith('/skills')}>Skills</a>
+		{#if $page.url.pathname.startsWith('/skills')}
+			<div class="skill-search-wrap">
+				<input
+					class="skill-search"
+					type="text"
+					placeholder="search skills"
+					bind:value={$skillsSearch}
+				/>
+			</div>
+		{/if}
 	</div>
 	<div class="nav-right">
 		{#if data.user}
@@ -178,6 +189,37 @@
 	.nav-left a:nth-child(3) { animation-delay: 0.19s; }
 	.nav-left a:nth-child(4) { animation-delay: 0.26s; }
 	.nav-right a             { animation-delay: 0.08s; }
+
+	.nav-left.with-search { width: auto; }
+
+	.skill-search-wrap {
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		animation: searchExpand 0.28s ease both;
+	}
+
+	@keyframes searchExpand {
+		from { width: 0; margin-left: 0; opacity: 0; }
+		to   { width: 9rem;  margin-left: 2.5rem; opacity: 1; }
+	}
+
+	.skill-search {
+		width: 9rem;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		color: var(--text-primary);
+		letter-spacing: 0.06em;
+		padding: 0 0 0.1rem;
+		outline: none;
+		transition: border-color 0.2s ease;
+	}
+
+	.skill-search::placeholder { color: var(--text-dim); font-style: italic; }
+	.skill-search:focus { border-bottom-color: rgba(255, 255, 255, 0.28); }
 
 	/* ── User menu ── */
 	.user-menu {

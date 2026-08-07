@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import type { PageData } from './$types';
+	import { skillsSearch } from '$lib/stores/skillsSearch';
 
 	let { data }: { data: PageData } = $props();
 
@@ -63,6 +65,11 @@
 			.flatMap(([level, items]) => shuffleSeeded(items, seed + level));
 	});
 
+	onDestroy(() => skillsSearch.set(''));
+
+	const RED_COLOR  = '#ff3333';
+	const RED_SHADOW = '0 0 6px rgba(255,50,50,1), 0 0 22px rgba(255,20,20,0.8), 0 0 44px rgba(180,0,0,0.5)';
+
 	async function practice(skill: UserSkill) {
 		if (skill.level >= 25) return;
 		const next = skill.level + 1;
@@ -81,10 +88,14 @@
 	{:else}
 		<div class="skills-cloud">
 			{#each displaySkills as skill (skill.id)}
+				{@const q = $skillsSearch.trim().toLowerCase()}
+				{@const matched = q.length > 0 && skill.skill.toLowerCase().includes(q)}
+				{@const dimmed  = q.length > 0 && !matched}
 				<button
 					class="skill-word"
 					class:maxed={skill.level >= 25}
-					style="color:{colorAt(skill.level / 25)};text-shadow:{shadowAt(skill.level / 25)}"
+					class:dimmed
+					style="color:{matched ? RED_COLOR : colorAt(skill.level / 25)};text-shadow:{matched ? RED_SHADOW : shadowAt(skill.level / 25)}"
 					onclick={() => practice(skill)}
 					title="level {skill.level} / 25 — click to practice"
 				>{skill.skill}</button>
@@ -124,6 +135,11 @@
 
 	.skill-word.maxed {
 		cursor: default;
+	}
+
+	.skill-word.dimmed {
+		opacity: 0.12;
+		filter: none;
 	}
 
 	.empty {
