@@ -53,26 +53,37 @@
 	let skills = $state<UserSkill[]>(data.skills as UserSkill[]);
 	const seed = hashSeed(data.userId);
 
-	const displaySkills = $derived.by(() => {
+	// Compute display order once from initial server data — stable for this page visit
+	function computeOrder(initial: UserSkill[]): string[] {
 		const byLevel = new Map<number, UserSkill[]>();
-		for (const s of skills) {
+		for (const s of initial) {
 			const g = byLevel.get(s.level) ?? [];
 			g.push(s);
 			byLevel.set(s.level, g);
 		}
 		return [...byLevel.entries()]
 			.sort(([a], [b]) => b - a)
-			.flatMap(([level, items]) => shuffleSeeded(items, seed + level));
-	});
+			.flatMap(([level, items]) => shuffleSeeded(items, seed + level))
+			.map(s => s.id);
+	}
+
+	// orderedIds is set once at init and only appended to when new skills are added
+	let orderedIds = $state<string[]>(computeOrder(data.skills as UserSkill[]));
+
+	// Order uses stable orderedIds; only level/color data is reactive
+	const displaySkills = $derived(
+		orderedIds.map(id => skills.find(s => s.id === id)).filter((s): s is UserSkill => s != null)
+	);
 
 	onDestroy(() => skillsSearch.set(''));
 
 	const RED_COLOR  = '#ff3333';
 	const RED_SHADOW = '0 0 6px rgba(255,50,50,1), 0 0 22px rgba(255,20,20,0.8), 0 0 44px rgba(180,0,0,0.5)';
 
-	const hasExactMatch = $derived.by(() => {
+	// True when ANY skill partially matches the search
+	const hasAnyMatch = $derived.by(() => {
 		const q = $skillsSearch.trim().toLowerCase();
-		return !q || skills.some(s => s.skill.toLowerCase() === q);
+		return !q || skills.some(s => s.skill.toLowerCase().includes(q));
 	});
 
 	async function addSkill() {
@@ -86,7 +97,8 @@
 		if (!res.ok) return;
 		const { skills: added } = await res.json() as { skills: UserSkill[] };
 		if (added.length > 0) {
-			skills = [...skills, ...added];
+			skills    = [...skills, ...added];
+			orderedIds = [...orderedIds, ...added.map(s => s.id)];
 			skillsSearch.set('');
 		}
 	}
@@ -94,6 +106,7 @@
 	async function practice(skill: UserSkill) {
 		if (skill.level >= 25) return;
 		const next = skill.level + 1;
+		// Update data only — orderedIds unchanged, so position stays fixed
 		skills = skills.map(s => s.id === skill.id ? { ...s, level: next } : s);
 		await fetch(`/api/skills/${skill.id}`, {
 			method:  'PATCH',
@@ -107,22 +120,28 @@
 	{#if skills.length === 0}
 		<p class="empty">no skills yet — complete onboarding to begin</p>
 	{:else}
-		<div class="skills-cloud">
-			{#each displaySkills as skill (skill.id)}
-				{@const q = $skillsSearch.trim().toLowerCase()}
-				{@const matched = q.length > 0 && skill.skill.toLowerCase().includes(q)}
-				{@const dimmed  = q.length > 0 && !matched}
-				<button
-					class="skill-word"
-					class:maxed={skill.level >= 25}
-					class:dimmed
-					style="color:{matched ? RED_COLOR : colorAt(skill.level / 25)};text-shadow:{matched ? RED_SHADOW : shadowAt(skill.level / 25)}"
-					onclick={() => practice(skill)}
-					title="level {skill.level} / 25 — click to practice"
-				>{skill.skill}</button>
-			{/each}
-			{#if $skillsSearch.trim() && !hasExactMatch}
-				<button class="skill-add-btn" onclick={addSkill} title="add '{$skillsSearch.trim()}'">+</button>
+		<div class="skills-wrap">
+			<div class="skills-cloud">
+				{#each displaySkills as skill (skill.id)}
+					{@const q = $skillsSearch.trim().toLowerCase()}
+					{@const matched = q.length > 0 && skill.skill.toLowerCase().includes(q)}
+					{@const dimmed  = q.length > 0 && !matched}
+					<button
+						class="skill-word"
+						class:maxed={skill.level >= 25}
+						class:dimmed
+						style="color:{matched ? RED_COLOR : colorAt(skill.level / 25)};text-shadow:{matched ? RED_SHADOW : shadowAt(skill.level / 25)}"
+						onclick={() => practice(skill)}
+						title="level {skill.level} / 25 — click to practice"
+					>{skill.skill}</button>
+				{/each}
+			</div>
+
+			{#if $skillsSearch.trim() && !hasAnyMatch}
+				<div class="no-match-overlay">
+					<p class="no-match-label">no matching skills</p>
+					<button class="no-match-add" onclick={addSkill}>add new</button>
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -132,6 +151,10 @@
 	.skills-page {
 		padding: 5.5rem var(--page-mx) 4rem;
 		min-height: 100vh;
+	}
+
+	.skills-wrap {
+		position: relative;
 	}
 
 	.skills-cloud {
@@ -153,35 +176,52 @@
 		transition: filter 0.15s ease, color 0.35s ease, text-shadow 0.35s ease;
 	}
 
-	.skill-word:hover {
-		filter: brightness(1.55) saturate(0.45);
-	}
-
-	.skill-word.maxed {
-		cursor: default;
-	}
+	.skill-word:hover { filter: brightness(1.55) saturate(0.45); }
+	.skill-word.maxed { cursor: default; }
 
 	.skill-word.dimmed {
 		opacity: 0.12;
 		filter: none;
 	}
 
-	.skill-add-btn {
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to   { opacity: 1; }
+	}
+
+	.no-match-overlay {
+		position: absolute;
+		inset: 0;
+		min-height: 8rem;
+		background: rgba(0, 0, 0, 0.55);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.85rem;
+		animation: fadeIn 0.18s ease both;
+	}
+
+	.no-match-label {
+		margin: 0;
+		font-size: 0.68rem;
+		color: var(--text-dim);
+		letter-spacing: 0.12em;
+	}
+
+	.no-match-add {
 		background: transparent;
 		border: none;
 		font-family: var(--font-mono);
-		font-size: 1rem;
-		color: var(--text-dim);
+		font-size: 0.75rem;
+		letter-spacing: 0.1em;
+		color: var(--text-muted);
 		cursor: pointer;
-		padding: 0.1rem 0;
-		line-height: 1.7;
-		transition: color 0.15s ease, text-shadow 0.15s ease;
+		padding: 0;
+		transition: color 0.15s ease;
 	}
 
-	.skill-add-btn:hover {
-		color: #ff3333;
-		text-shadow: 0 0 6px rgba(255,50,50,0.9), 0 0 18px rgba(255,20,20,0.5);
-	}
+	.no-match-add:hover { color: var(--text-primary); }
 
 	.empty {
 		color: var(--text-dim);
