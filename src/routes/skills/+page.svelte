@@ -123,41 +123,35 @@
 	{#if skills.length === 0}
 		<p class="empty">no skills yet — complete onboarding to begin</p>
 	{:else}
-		<div class="skills-wrap">
-			<div class="skills-cloud">
-				{#each displaySkills as skill (skill.id)}
-					{@const q = $skillsSearch.trim().toLowerCase()}
-					{@const matched = q.length > 0 && skill.skill.toLowerCase().includes(q)}
-					{@const dimmed  = q.length > 0 && !matched}
-					<button
-						class="skill-word"
-						class:maxed={skill.level >= 25}
-						class:dimmed
-						style="color:{matched ? RED_COLOR : colorAt(skill.level / 25)};text-shadow:{matched ? RED_SHADOW : shadowAt(skill.level / 25)}"
-						onclick={() => practice(skill)}
-						title="level {skill.level} / 25 — click to practice"
-					>{skill.skill}</button>
-				{/each}
-			</div>
-
-			{#if $skillsSearch.trim() && !hasAnyMatch}
-				<div class="no-match-overlay">
-					<p class="no-match-label">no matching skills</p>
-					<button class="no-match-add" onclick={addSkill}>add new</button>
-				</div>
-			{/if}
+		<div class="skills-cloud">
+			{#each displaySkills as skill (skill.id)}
+				{@const q = $skillsSearch.trim().toLowerCase()}
+				{@const matched = q.length > 0 && skill.skill.toLowerCase().includes(q)}
+				{@const dimmed  = q.length > 0 && !matched}
+				<button
+					class="skill-word"
+					class:maxed={skill.level >= 25}
+					class:dimmed
+					style="color:{matched ? RED_COLOR : colorAt(skill.level / 25)};text-shadow:{matched ? RED_SHADOW : shadowAt(skill.level / 25)}"
+					onclick={() => practice(skill)}
+					title="level {skill.level} / 25 — click to practice"
+				>{skill.skill}</button>
+			{/each}
 		</div>
 	{/if}
 </div>
+
+{#if $skillsSearch.trim() && !hasAnyMatch}
+<div class="no-match-overlay">
+	<p class="no-match-label">no matching skills</p>
+	<button class="no-match-add" onclick={addSkill}>add new</button>
+</div>
+{/if}
 
 <style>
 	.skills-page {
 		padding: 5.5rem var(--page-mx) 4rem;
 		min-height: 100vh;
-	}
-
-	.skills-wrap {
-		position: relative;
 	}
 
 	.skills-cloud {
@@ -193,16 +187,24 @@
 	}
 
 	.no-match-overlay {
-		position: absolute;
+		position: fixed;
 		inset: 0;
-		min-height: 8rem;
-		background: rgba(0, 0, 0, 0.55);
+		z-index: 15;
+		/* reverse vignette: darkest at center, fades to transparent at edges */
+		background: radial-gradient(
+			ellipse at 50% 50%,
+			rgba(0, 0, 0, 0.58) 0%,
+			rgba(0, 0, 0, 0.22) 42%,
+			transparent 70%
+		);
+		backdrop-filter: blur(5px);
+		-webkit-backdrop-filter: blur(5px);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		gap: 0.85rem;
-		animation: fadeIn 0.18s ease both;
+		animation: fadeIn 0.22s ease both;
 	}
 
 	.no-match-label {
