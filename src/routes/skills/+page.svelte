@@ -70,6 +70,27 @@
 	const RED_COLOR  = '#ff3333';
 	const RED_SHADOW = '0 0 6px rgba(255,50,50,1), 0 0 22px rgba(255,20,20,0.8), 0 0 44px rgba(180,0,0,0.5)';
 
+	const hasExactMatch = $derived.by(() => {
+		const q = $skillsSearch.trim().toLowerCase();
+		return !q || skills.some(s => s.skill.toLowerCase() === q);
+	});
+
+	async function addSkill() {
+		const name = $skillsSearch.trim();
+		if (!name) return;
+		const res = await fetch('/api/skills', {
+			method:  'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body:    JSON.stringify({ tags: [name] }),
+		});
+		if (!res.ok) return;
+		const { skills: added } = await res.json() as { skills: UserSkill[] };
+		if (added.length > 0) {
+			skills = [...skills, ...added];
+			skillsSearch.set('');
+		}
+	}
+
 	async function practice(skill: UserSkill) {
 		if (skill.level >= 25) return;
 		const next = skill.level + 1;
@@ -100,6 +121,9 @@
 					title="level {skill.level} / 25 — click to practice"
 				>{skill.skill}</button>
 			{/each}
+			{#if $skillsSearch.trim() && !hasExactMatch}
+				<button class="skill-add-btn" onclick={addSkill} title="add '{$skillsSearch.trim()}'">+</button>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -140,6 +164,23 @@
 	.skill-word.dimmed {
 		opacity: 0.12;
 		filter: none;
+	}
+
+	.skill-add-btn {
+		background: transparent;
+		border: none;
+		font-family: var(--font-mono);
+		font-size: 1rem;
+		color: var(--text-dim);
+		cursor: pointer;
+		padding: 0.1rem 0;
+		line-height: 1.7;
+		transition: color 0.15s ease, text-shadow 0.15s ease;
+	}
+
+	.skill-add-btn:hover {
+		color: #ff3333;
+		text-shadow: 0 0 6px rgba(255,50,50,0.9), 0 0 18px rgba(255,20,20,0.5);
 	}
 
 	.empty {

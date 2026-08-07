@@ -82,7 +82,7 @@
 				<input
 					class="skill-search"
 					type="text"
-					placeholder="search skills"
+					placeholder="search or add skills"
 					bind:value={$skillsSearch}
 				/>
 			</div>
