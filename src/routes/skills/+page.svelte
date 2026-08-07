@@ -53,17 +53,20 @@
 	let skills = $state<UserSkill[]>(data.skills as UserSkill[]);
 	const seed = hashSeed(data.userId);
 
+	// Each skill gets a deterministic noise offset so same-level skills scatter
+	// across the page rather than forming horizontal bands. noise_range = 5 means
+	// a level-10 skill can score anywhere from 10–15, creating organic overlap
+	// with adjacent levels while hot skills still dominate the top overall.
+	function skillScore(skill: UserSkill): number {
+		const x = Math.sin(hashSeed(skill.id + data.userId)) * 10000;
+		const r = x - Math.floor(x); // deterministic [0, 1) per skill per user
+		return skill.level + r * 5;
+	}
+
 	// Compute display order once from initial server data — stable for this page visit
 	function computeOrder(initial: UserSkill[]): string[] {
-		const byLevel = new Map<number, UserSkill[]>();
-		for (const s of initial) {
-			const g = byLevel.get(s.level) ?? [];
-			g.push(s);
-			byLevel.set(s.level, g);
-		}
-		return [...byLevel.entries()]
-			.sort(([a], [b]) => b - a)
-			.flatMap(([level, items]) => shuffleSeeded(items, seed + level))
+		return [...initial]
+			.sort((a, b) => skillScore(b) - skillScore(a))
 			.map(s => s.id);
 	}
 
